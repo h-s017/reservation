@@ -1,15 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Hana's Scent Artist logo">
-  <rect width="240" height="240" fill="none"/>
-  <g stroke="#151515" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M120 30 L120 210"/>
-    <path d="M30 120 L210 120"/>
-    <path d="M55 55 L185 185"/>
-    <path d="M185 55 L55 185"/>
-    <path d="M83 120 H157" stroke-width="10"/>
-    <path d="M120 82 V158" stroke-width="10"/>
-    <path d="M104 94 V146" stroke-width="5"/>
-    <path d="M136 94 V146" stroke-width="5"/>
-    <path d="M74 105 L108 120 L74 135" stroke-width="4"/>
-    <path d="M166 105 L132 120 L166 135" stroke-width="4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-label="HANA SCENT ARTIST logo">
+  <rect width="1254" height="1254" fill="#fff"/>
+  <g fill="#000">
+    <polygon points="625,174 640,443 625,552 611,443"/>
+    <polygon points="625,1067 640,807 625,700 611,807"/>
+    <polygon points="141,624 559,613 625,624 559,636"/>
+    <polygon points="1113,624 694,613 627,624 694,636"/>
+    <polygon points="331,342 568,578 625,624 553,603"/>
+    <polygon points="923,342 686,578 627,624 701,603"/>
+    <polygon points="331,912 568,674 625,624 553,650"/>
+    <polygon points="923,912 686,674 627,624 701,650"/>
+    <polygon points="441,573 548,610 574,625 548,639"/>
+    <polygon points="813,573 706,610 680,625 706,639"/>
+    <polygon points="441,681 548,642 574,628 548,661"/>
+    <polygon points="813,681 706,642 680,628 706,661"/>
+    <rect x="566" y="445" width="27" height="313"/>
+    <rect x="593" y="445" width="20" height="313"/>
+    <rect x="667" y="445" width="27" height="313"/>
+    <rect x="694" y="445" width="20" height="313"/>
+    <polygon points="578,406 585,445 572,445"/>
+    <polygon points="704,406 711,445 698,445"/>
+    <polygon points="578,821 585,758 572,758"/>
+    <polygon points="704,821 711,758 698,758"/>
+    <circle cx="627" cy="624" r="7"/>
   </g>
 </svg>
