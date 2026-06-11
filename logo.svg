@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Hana's Scent Artist logo">
+  <rect width="240" height="240" fill="none"/>
+  <g stroke="#151515" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M120 30 L120 210"/>
+    <path d="M30 120 L210 120"/>
+    <path d="M55 55 L185 185"/>
+    <path d="M185 55 L55 185"/>
+    <path d="M83 120 H157" stroke-width="10"/>
+    <path d="M120 82 V158" stroke-width="10"/>
+    <path d="M104 94 V146" stroke-width="5"/>
+    <path d="M136 94 V146" stroke-width="5"/>
+    <path d="M74 105 L108 120 L74 135" stroke-width="4"/>
+    <path d="M166 105 L132 120 L166 135" stroke-width="4"/>
+  </g>
+</svg>
