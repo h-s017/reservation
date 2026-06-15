@@ -1,6 +1,6 @@
 const NOTIFY_EMAIL = "你的Email@gmail.com";
 const API_TOKEN = "請改成一串自訂亂碼例如hf-2026-x7k9q2";
-const STUDENT_PASSWORD = "請改成學員工具密碼";
+const STUDENT_PASSWORD = "hana2026";
 const DRIVE_FOLDER = "報名繳費憑證";
 const RETENTION_MONTHS = 12;
 const TZ = "Asia/Taipei";
