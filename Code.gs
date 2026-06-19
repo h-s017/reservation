@@ -16,7 +16,7 @@ const COURSES = [
   {series:"心村限定｜Helori 香氣探索所",course:"雙人調香探索課 50ML",price:3600,capacity:5,unit:"組",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"single"},
   {series:"HANA SCENT ARTIST 專業調香師課程",course:"01 氣味藝術序曲",price:3650,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},
   {series:"韓國 KPIA 調香協會系列",course:"KPIA大韓專業調香師課程",price:39000,capacity:4,unit:"位",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"multiple",max:12,requiredSlots:12},
-  {series:"韓國 KPIA 調香協會系列",course:"KPIA 專業調香師雙證書課（優惠加購無酒精香水證書）",price:44000,capacity:4,unit:"位",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"multiple",max:8},
+  {series:"韓國 KPIA 調香協會系列",course:"KPIA 專業調香師雙證書課（優惠加購無酒精香水證書）",price:44000,capacity:4,unit:"位",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"multiple",max:12,requiredSlots:12},
   {series:"韓國 KPIA 調香協會系列",course:"KPIA無酒精香水課程",price:6500,capacity:4,unit:"位",times:["10:00–15:00"],mode:"single"}
 ];
 function doGet(e){if(e.parameter.action==="slots")return json({slots:getOpenSlots()});return json({ok:true,service:"hana-booking"});}
