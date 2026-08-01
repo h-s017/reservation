@@ -11,7 +11,7 @@ const CLOSED_DATES = ["2026-08-09","2026-08-10","2026-08-11","2027-02-05","2027-
 const SPECIAL_DATE_TIMES = {"2026-07-17":["09:00–12:00"]};
 const SPECIAL_OPEN_HOURS = {"2026-08-17":13,"2026-08-20":13,"2026-08-28":13};
 const COURSES = [
-  {series:"亞洲香氛藝術大賽",course:"此域 Hineni 嗅覺敘事空間｜合作調香教室",price:0,capacity:10,unit:"位",times:["10:00–12:00","13:00–15:00","15:30–17:30","17:30–19:30"],mode:"single",contest:true,startDate:"2026-08-01",endDate:"2026-08-23"},
+  {series:"亞洲香氛藝術大賽",course:"此域 Hineni 嗅覺敘事空間｜合作調香教室",price:0,capacity:10,unit:"位",times:["10:00–12:00","13:00–15:00","15:30–17:30","18:00–20:00"],mode:"single",contest:true,startDate:"2026-08-01",endDate:"2026-08-23"},
   {series:"心村限定｜Helori 香氣探索所",course:"單人調香探索課 10ML",price:990,capacity:10,unit:"位",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"single"},
   {series:"心村限定｜Helori 香氣探索所",course:"雙人調香探索課 10ML",price:1980,capacity:5,unit:"組",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"single"},
   {series:"心村限定｜Helori 香氣探索所",course:"單人調香探索課 50ML",price:1800,capacity:10,unit:"位",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"single"},
