@@ -1,0 +1,60 @@
+name: Lock reservation calendar to August
+
+on:
+  push:
+    paths:
+      - '.github/workflows/lock-reservation-to-august.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Prevent navigation before August 2026
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  "view=new Date((c.startDate||C.START).slice(0,10));",
+                  "view=new Date(Math.max(new Date((c.startDate||C.START).slice(0,10)).getTime(),new Date(C.START).getTime()));",
+              ),
+              (
+                  ".nav{width:42px;height:42px;border:1px solid #ddd;background:#fff;font-size:18px}",
+                  ".nav{width:42px;height:42px;border:1px solid #ddd;background:#fff;font-size:18px}.nav:disabled{opacity:.25;cursor:not-allowed;background:#fff}",
+              ),
+              (
+                  "$('calendar').innerHTML=html;$('prevM').onclick=()=>{view.setMonth(view.getMonth()-1);renderCalendar()};$('nextM').onclick=()=>{view.setMonth(view.getMonth()+1);renderCalendar()};",
+                  "$('calendar').innerHTML=html;const minMonth=new Date(C.START),isMinMonth=y===minMonth.getFullYear()&&m===minMonth.getMonth();$('prevM').disabled=isMinMonth;$('prevM').onclick=()=>{if(isMinMonth)return;view.setMonth(view.getMonth()-1);renderCalendar()};$('nextM').onclick=()=>{view.setMonth(view.getMonth()+1);renderCalendar()};",
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:80]}')
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit and push update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Prevent reservation calendar before August"
+          git push origin HEAD:main
