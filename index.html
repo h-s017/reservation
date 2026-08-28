@@ -22,6 +22,30 @@ section{display:none;padding-top:42px}section.show{display:block}.eyebrow{font-s
 .field{margin-top:24px}.field label{display:block;font-size:14px;letter-spacing:.14em;margin-bottom:8px}.field input,.field textarea{width:100%;border:0;border-bottom:1px solid #ddd;padding:9px 2px;font-size:17px;background:#fff}.field textarea{min-height:70px}.upload{border:1px dashed #ddd;background:#fff;padding:30px 18px;text-align:center;cursor:pointer}.upload input{display:none}.upload img{display:none;max-width:160px;max-height:160px;margin:12px auto 0}.privacy{background:#f7f7f7;padding:16px;margin-top:30px}.row{display:flex;gap:12px;margin-top:42px}.btn{flex:1;background:#000;color:#fff;border:1px solid #000;padding:17px;font-size:16px;letter-spacing:.16em;text-align:center;text-decoration:none}.btn:disabled{opacity:.35}.ghost{background:#fff;color:#000;flex:0 0 auto}.msg{display:none;font-size:14px;margin-top:16px}.msg.show{display:block}.done{text-align:center}.check{width:66px;height:66px;border:1px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:16px auto;font-size:26px}.done-id{font-size:28px;letter-spacing:.12em}.done-body{background:#f7f7f7;padding:24px;margin-top:22px;font-size:15px}
 footer{text-align:center;margin-top:34px;border-top:1px solid #ddd;padding:22px 0 8px}.foot{font-size:12px;letter-spacing:.28em;text-transform:uppercase;margin-top:0}
 @media(max-width:480px){.brand{font-size:30px}.slot,.pay-title{flex-wrap:wrap}.links{gap:8px}.link{font-size:12px;letter-spacing:.03em;padding:8px 6px}.rowline{align-items:flex-start}footer{margin-top:28px}}
+
+:root{--reservation-ink:#6f6f6a;--reservation-line:#d9d9d4;--reservation-soft:#9a9a94}
+html,body{background:#fff!important;color:var(--reservation-ink)!important}
+header{background:#fff!important;border-bottom-color:var(--reservation-line)!important}
+.brand,.en,.eyebrow,h2,.note,.name,.meta,.mark,.state,.month,.wd,.stime,.price,.pay-title,.pay-desc,.privacy,.field label,.done,.done-id,.done-body,.foot,footer{color:var(--reservation-ink)!important}
+.link,.paylink,.flow-list a{color:var(--reservation-ink)!important;border-color:var(--reservation-line)!important}
+.num{border-color:var(--reservation-line)!important;color:var(--reservation-ink)!important;background:#fff!important}
+.step.active .num,.step.done .num{border-color:var(--reservation-soft)!important;background:#fff!important;color:var(--reservation-ink)!important}
+.notice,.summary,.privacy,.done-body{background:#fff!important;border-color:var(--reservation-line)!important}
+.external-card,.flow-list li,.option,.slot,.pay,.cal-head,.time-title,.field input,.field textarea,footer{border-color:var(--reservation-line)!important}
+.option,.slot,.pay,.field input,.field textarea,.upload,.nav,.day{background:#fff!important;color:var(--reservation-ink)!important}
+.option:hover,.slot:hover:not(:disabled),.pay:hover:not(:disabled){background:#fff!important}
+.day.off,.day.full{background:#fff!important;color:#c1c1bc!important}
+.day.open{background:#fff!important;border-color:var(--reservation-line)!important;color:var(--reservation-ink)!important}
+.day.open:after{background:#8d8d87!important}
+.day.selected{background:#fff!important;color:#5f5f5a!important;box-shadow:inset 0 0 0 2px #8d8d87!important}
+.slot.selected,.pay.selected{background:#fff!important;color:#5f5f5a!important;box-shadow:inset 0 0 0 1px #8d8d87!important;border-color:#8d8d87!important}
+.slot:disabled,.pay:disabled{background:#fff!important}
+.btn,.ghost{background:#fff!important;color:var(--reservation-ink)!important;border-color:#8d8d87!important;box-shadow:none!important}
+.btn:hover,.ghost:hover{background:#fff!important;color:#5f5f5a!important}
+.check{border-color:#8d8d87!important;color:var(--reservation-ink)!important}
+.upload{border-color:var(--reservation-line)!important}
+input,textarea{color:var(--reservation-ink)!important}
+input::placeholder,textarea::placeholder{color:#aaa9a4!important}
 </style>
 </head>
 <body>
