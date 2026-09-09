@@ -23,9 +23,8 @@ jobs:
       - name: Set calendar start to current month
         shell: bash
         run: |
-          TZ=Asia/Taipei
-          export TZ
-          MONTH_START="$(date +'%Y-%m-01T10:00:00+08:00')"
+          export TZ=Asia/Taipei
+          export MONTH_START="$(date +'%Y-%m-01T10:00:00+08:00')"
           python3 - <<'PY'
           import os, re
           from pathlib import Path
