@@ -1,0 +1,45 @@
+name: Update Overture Series
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update-overture-series.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update reservation course series
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace("H.FUGUE 專業調香系列", "氣味藝術序曲系列")
+          text = text.replace("en:'Professional Perfumery'", "en:'Overture to the Art of Scent'")
+
+          old_vol1 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'01 氣味藝術序曲',price:5000,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:'https://portaly.cc/hanascent/product/sjqfEsjnZwtsSPbhFCyg'},"
+          new_vol1 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 1｜一日專業調香師',price:4500,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:'https://portaly.cc/hanascent/product/sjqfEsjnZwtsSPbhFCyg'},\n{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 2｜調香師的和弦練習曲',price:4800,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:''},"
+          if old_vol1 not in text:
+              raise SystemExit('Vol. 1 source line not found')
+          text = text.replace(old_vol1, new_vol1, 1)
+
+          text = text.replace("course:'02 氣味自修室｜Scent Practice Room'", "course:'Vol. 0｜氣味自修室'")
+          text = text.replace("course==='02 氣味自修室｜Scent Practice Room'", "course==='Vol. 0｜氣味自修室'")
+
+          path.write_text(text, encoding='utf-8')
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Update reservation Overture course series"
+          git push
