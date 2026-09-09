@@ -1,0 +1,58 @@
+name: Update reservation calendar month
+
+on:
+  schedule:
+    # 00:10 UTC = 08:10 Asia/Taipei on the 1st of every month
+    - cron: '10 0 1 * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update-calendar-month.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-calendar-month:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set calendar start to current month
+        shell: bash
+        run: |
+          TZ=Asia/Taipei
+          export TZ
+          MONTH_START="$(date +'%Y-%m-01T10:00:00+08:00')"
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+          month_start = os.environ['MONTH_START']
+          updated, count = re.subn(
+              r"START:'[^']+'",
+              f"START:'{month_start}'",
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('Could not find exactly one C.START value in index.html')
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+      - name: Commit change if needed
+        shell: bash
+        run: |
+          if git diff --quiet -- index.html; then
+            echo "Calendar already points to the current month."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "chore: update reservation calendar to current month"
+          git push
