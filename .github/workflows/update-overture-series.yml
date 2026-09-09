@@ -19,27 +19,82 @@ jobs:
         run: |
           from pathlib import Path
 
+          # ---------- Front-end ----------
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
 
+          # Keep current Overture naming consistent.
           text = text.replace("H.FUGUE 專業調香系列", "氣味藝術序曲系列")
           text = text.replace("en:'Professional Perfumery'", "en:'Overture to the Art of Scent'")
-
-          old_vol1 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'01 氣味藝術序曲',price:5000,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:'https://portaly.cc/hanascent/product/sjqfEsjnZwtsSPbhFCyg'},"
-          new_vol1 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 1｜一日專業調香師',price:4500,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:'https://portaly.cc/hanascent/product/sjqfEsjnZwtsSPbhFCyg'},\n{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 2｜調香師的和弦練習曲',price:4800,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:''},"
-          if old_vol1 not in text:
-              raise SystemExit('Vol. 1 source line not found')
-          text = text.replace(old_vol1, new_vol1, 1)
-
           text = text.replace("course:'02 氣味自修室｜Scent Practice Room'", "course:'Vol. 0｜氣味自修室'")
           text = text.replace("course==='02 氣味自修室｜Scent Practice Room'", "course==='Vol. 0｜氣味自修室'")
 
+          # Upgrade the legacy Vol. 1 line if it still exists.
+          legacy_vol1 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'01 氣味藝術序曲',price:5000,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:'https://portaly.cc/hanascent/product/sjqfEsjnZwtsSPbhFCyg'},"
+          current_vol1 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 1｜一日專業調香師',price:4500,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:'https://portaly.cc/hanascent/product/sjqfEsjnZwtsSPbhFCyg'},"
+          if legacy_vol1 in text:
+              text = text.replace(legacy_vol1, current_vol1, 1)
+
+          vol2 = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 2｜調香師的和弦練習曲',price:4800,cap:6,unit:'位',times:['10:00–16:00'],mode:'single',payUrl:''},"
+          combo = "{series:'氣味藝術序曲系列',en:'Overture to the Art of Scent',course:'Vol. 1 ＋ Vol. 2',price:8000,cap:6,unit:'位',times:['10:00–16:00'],mode:'multiple',max:2,requiredSlots:2,slotNotice:'請選擇 2 個上課日期，每次 6 小時，共 12 小時。',payUrl:''},"
+          if combo not in text:
+              if vol2 in text:
+                  text = text.replace(vol2, vol2 + "\n" + combo, 1)
+              elif current_vol1 in text:
+                  text = text.replace(current_vol1, current_vol1 + "\n" + vol2 + "\n" + combo, 1)
+              else:
+                  raise SystemExit('Unable to locate Vol. 1 / Vol. 2 course definitions')
+
+          # Vol. 0 native dropdown. Dropdown text is 2pt smaller than the 19px course title.
+          css_anchor = ".name,.stime{font-size:19px;font-weight:500;line-height:1.45;letter-spacing:.04em}.meta{font-size:14px;margin-top:3px}.mark,.state{font-size:13px;letter-spacing:.12em;white-space:nowrap}"
+          css_new = css_anchor + "\n.vol0-select{width:100%;margin-top:16px;padding:13px 34px 13px 12px;border:1px solid var(--reservation-line,#ddd);background:#fff;color:inherit;font-size:calc(19px - 2pt);line-height:1.45;letter-spacing:.04em;font-family:inherit;cursor:pointer}.vol0-select:focus{outline:1px solid #8d8d87;outline-offset:2px}.vol0-select option{font-size:calc(19px - 2pt)}"
+          if '.vol0-select{' not in text:
+              if css_anchor not in text:
+                  raise SystemExit('CSS anchor not found')
+              text = text.replace(css_anchor, css_new, 1)
+
+          old_render = "function renderCourses(){const list=C.COURSES.filter(c=>c.series===S.series);const grouped=list.reduce((acc,c,i)=>{const key=c.course;(acc[key]||(acc[key]=[])).push({c,i});return acc},{});$('courseMenu').innerHTML=Object.entries(grouped).map(([course,items])=>{if(items.length===1&&!items[0].c.variant){const c=items[0].c;return `<button class=\"option\" data-i=\"${items[0].i}\"><div class=\"rowline\"><div><div class=\"name\">${esc(c.course)}</div><div class=\"meta\">${priceLine(c)}</div></div><div class=\"mark\">選擇</div></div></button>`}const note=course==='Vol. 0｜氣味自修室'?'請選擇費用方案，舊生及陪同者方案請私訊報名':'請選擇費用方案';return `<div class=\"option\" style=\"cursor:default\"><div class=\"name\">${esc(course)}</div><div class=\"meta\">${esc(note)}</div>${items.map(({c,i})=>`<button class=\"slot\" type=\"button\" data-i=\"${i}\"><div><div class=\"stime\">${esc(optionTitle(c))}</div><div class=\"meta\">${esc(optionSubtitle(c))}</div></div><div class=\"price\">${priceLine(c)}</div><div class=\"state\">選擇</div></button>`).join('')}</div>`}).join('');document.querySelectorAll('#courseMenu [data-i]').forEach(b=>b.onclick=()=>chooseCourse(list[+b.dataset.i]))}"
+          new_render = "function renderCourses(){const list=C.COURSES.filter(c=>c.series===S.series);const grouped=list.reduce((acc,c,i)=>{const key=c.course;(acc[key]||(acc[key]=[])).push({c,i});return acc},{});$('courseMenu').innerHTML=Object.entries(grouped).map(([course,items])=>{if(items.length===1&&!items[0].c.variant){const c=items[0].c;return `<button class=\"option\" data-i=\"${items[0].i}\"><div class=\"rowline\"><div><div class=\"name\">${esc(c.course)}</div><div class=\"meta\">${priceLine(c)}</div></div><div class=\"mark\">選擇</div></div></button>`}const note=course==='Vol. 0｜氣味自修室'?'請選擇費用方案，舊生及陪同者方案請私訊報名':'請選擇費用方案';if(course==='Vol. 0｜氣味自修室')return `<div class=\"option\" style=\"cursor:default\"><div class=\"name\">${esc(course)}</div><div class=\"meta\">${esc(note)}</div><select class=\"vol0-select\" aria-label=\"Vol. 0 氣味自修室費用方案\"><option value=\"\">請選擇方案</option>${items.map(({c,i})=>`<option value=\"${i}\">${esc(optionTitle(c))}｜${priceLine(c)}</option>`).join('')}</select></div>`;return `<div class=\"option\" style=\"cursor:default\"><div class=\"name\">${esc(course)}</div><div class=\"meta\">${esc(note)}</div>${items.map(({c,i})=>`<button class=\"slot\" type=\"button\" data-i=\"${i}\"><div><div class=\"stime\">${esc(optionTitle(c))}</div><div class=\"meta\">${esc(optionSubtitle(c))}</div></div><div class=\"price\">${priceLine(c)}</div><div class=\"state\">選擇</div></button>`).join('')}</div>`}).join('');document.querySelectorAll('#courseMenu [data-i]').forEach(b=>b.onclick=()=>chooseCourse(list[+b.dataset.i]));document.querySelectorAll('#courseMenu .vol0-select').forEach(s=>s.onchange=()=>{if(s.value!=='')chooseCourse(list[+s.value])})}"
+          if 'vol0-select' not in text.split('function renderCourses()',1)[-1]:
+              if old_render not in text:
+                  raise SystemExit('renderCourses source not found')
+              text = text.replace(old_render, new_render, 1)
+
+          # For multi-date courses, keep every selected date visibly marked in the calendar.
+          old_selected = "${S.date===ds?'selected':''}"
+          new_selected = "${(S.date===ds||S.slots.some(s=>s.date===ds))?'selected':''}"
+          if new_selected not in text and old_selected in text:
+              text = text.replace(old_selected, new_selected, 1)
+
           path.write_text(text, encoding='utf-8')
+
+          # ---------- Apps Script source ----------
+          gas_path = Path('Code.gs')
+          gas = gas_path.read_text(encoding='utf-8')
+          gas = gas.replace('H.FUGUE 專業調香系列', '氣味藝術序曲系列')
+          gas = gas.replace('course:"02 氣味自修室｜Scent Practice Room"', 'course:"Vol. 0｜氣味自修室"')
+
+          legacy_gas_vol1 = '{series:"氣味藝術序曲系列",course:"01 氣味藝術序曲",price:3650,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},'
+          gas_vol1 = '{series:"氣味藝術序曲系列",course:"Vol. 1｜一日專業調香師",price:4500,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},'
+          gas_vol2 = '{series:"氣味藝術序曲系列",course:"Vol. 2｜調香師的和弦練習曲",price:4800,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},'
+          gas_combo = '{series:"氣味藝術序曲系列",course:"Vol. 1 ＋ Vol. 2",price:8000,capacity:6,unit:"位",times:["10:00–16:00"],mode:"multiple",max:2,requiredSlots:2},'
+          if legacy_gas_vol1 in gas:
+              gas = gas.replace(legacy_gas_vol1, gas_vol1, 1)
+          if gas_combo not in gas:
+              if gas_vol2 in gas:
+                  gas = gas.replace(gas_vol2, gas_vol2 + "\n  " + gas_combo, 1)
+              elif gas_vol1 in gas:
+                  gas = gas.replace(gas_vol1, gas_vol1 + "\n  " + gas_vol2 + "\n  " + gas_combo, 1)
+              else:
+                  raise SystemExit('Unable to locate Apps Script Overture definitions')
+
+          gas_path.write_text(gas, encoding='utf-8')
+
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
+          git add index.html Code.gs
           git diff --cached --quiet && exit 0
-          git commit -m "Update reservation Overture course series"
+          git commit -m "Add Vol. 1+2 booking and Vol. 0 dropdown"
           git push
