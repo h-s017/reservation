@@ -1,4 +1,5 @@
 name: Update reservation calendar month
+# Trigger official-site footer sync after merge.
 
 on:
   schedule:
