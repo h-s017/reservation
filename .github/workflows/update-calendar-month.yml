@@ -1,4 +1,5 @@
 name: Update reservation calendar month
+# Triggered via merged PR to apply the official-site footer sync.
 
 on:
   schedule:
