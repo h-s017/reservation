@@ -44,8 +44,9 @@ jobs:
           PY
 
       - name: Keep reservation footer aligned with official site
-        shell: python
+        shell: bash
         run: |
+          python3 - <<'PY'
           from pathlib import Path
           import re
 
@@ -129,6 +130,7 @@ jobs:
               raise SystemExit('Expected exactly one footer to replace')
 
           path.write_text(text, encoding='utf-8')
+          PY
 
       - name: Commit change if needed
         shell: bash
