@@ -1,0 +1,7 @@
+{
+  "name": "hana-reservation-payment",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test test/*.test.mjs", "test:browser": "node test/browser.cjs", "dev": "wrangler dev", "deploy": "wrangler deploy"},
+  "devDependencies": {"wrangler": "^4.0.0", "playwright": "^1.55.1"}
+}

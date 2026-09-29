@@ -1,0 +1,51 @@
+const encoder = new TextEncoder();
+export const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
+export async function sha256(value) { return hex(await crypto.subtle.digest('SHA-256', encoder.encode(value))); }
+export function equal(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+function keyAndIV(env) {
+  const key = encoder.encode(env.NEWEBPAY_HASH_KEY || ''), iv = encoder.encode(env.NEWEBPAY_HASH_IV || '');
+  if (key.length !== 32 || iv.length !== 16 || !env.NEWEBPAY_MERCHANT_ID) throw new Error('CONFIGURATION');
+  return {key, iv};
+}
+export async function signature(info, env) {
+  return (await sha256(`HashKey=${env.NEWEBPAY_HASH_KEY}&${info}&HashIV=${env.NEWEBPAY_HASH_IV}`)).toUpperCase();
+}
+export async function encrypt(parameters, env) {
+  const {key, iv} = keyAndIV(env);
+  const aes = await crypto.subtle.importKey('raw', key, 'AES-CBC', false, ['encrypt']);
+  // Web Crypto applies PKCS#7; do not add a second padding layer.
+  return hex(await crypto.subtle.encrypt({name: 'AES-CBC', iv}, aes, encoder.encode(new URLSearchParams(parameters).toString())));
+}
+export async function verifyNotification(form, env) {
+  const {key, iv} = keyAndIV(env);
+  const info = form.get('TradeInfo'), sha = form.get('TradeSha');
+  if (form.get('MerchantID') !== env.NEWEBPAY_MERCHANT_ID || !/^[a-fA-F0-9]{32,32768}$/.test(info || '') || info.length % 32 ||
+      !equal(await signature(info, env), sha)) throw new Error('INVALID_NOTIFICATION');
+  const aes = await crypto.subtle.importKey('raw', key, 'AES-CBC', false, ['decrypt']);
+  const bytes = Uint8Array.from(info.match(/../g), x => parseInt(x, 16));
+  const decoded = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name: 'AES-CBC', iv}, aes, bytes)));
+  const r = decoded.Result;
+  if (!r || r.MerchantID !== env.NEWEBPAY_MERCHANT_ID || !/^[A-Za-z0-9_]{1,30}$/.test(r.MerchantOrderNo || '') ||
+      !/^\d+$/.test(String(r.Amt)) || !Number.isSafeInteger(Number(r.Amt)) || Number(r.Amt) <= 0 || typeof decoded.Status !== 'string') throw new Error('INVALID_NOTIFICATION');
+  // Only the immediate CREDIT channel is enabled. A successful authorization
+  // must have a provider trade number; never accept a ReturnURL as evidence.
+  if (decoded.Status === 'SUCCESS' && (r.PaymentType !== 'CREDIT' || !/^[A-Za-z0-9_-]{1,50}$/.test(r.TradeNo || ''))) throw new Error('INVALID_NOTIFICATION');
+  return {merchantOrderNo: r.MerchantOrderNo, amount: Number(r.Amt), tradeNo: r.TradeNo || '', status: decoded.Status === 'SUCCESS' ? 'PAID' : 'FAILED'};
+}
+export async function checkout(order, env) {
+  if (!['test', 'production'].includes(env.NEWEBPAY_ENV)) throw new Error('CONFIGURATION');
+  const info = await encrypt({
+    MerchantID: env.NEWEBPAY_MERCHANT_ID, RespondType: 'JSON', TimeStamp: String(order.attempt.timestamp), Version: '2.0',
+    MerchantOrderNo: order.attempt.id, Amt: String(order.amount), ItemDesc: order.course.slice(0, 40), Email: order.email,
+    LoginType: '0', CREDIT: '1', WEBATM: '0', VACC: '0', CVS: '0', BARCODE: '0', ANDROIDPAY: '0', SAMSUNGPAY: '0', LINEPAY: '0',
+    NotifyURL: env.PUBLIC_ORIGIN + '/payment/notify', ReturnURL: env.PUBLIC_ORIGIN + '/payment/return',
+    ClientBackURL: env.SITE_ORIGIN + '/?payment=return'
+  }, env);
+  return {action: env.NEWEBPAY_ENV === 'test' ? 'https://ccore.newebpay.com/MPG/mpg_gateway' : 'https://core.newebpay.com/MPG/mpg_gateway',
+    fields: {MerchantID: env.NEWEBPAY_MERCHANT_ID, TradeInfo: info, TradeSha: await signature(info, env), Version: '2.0', EncryptType: '0'}};
+}

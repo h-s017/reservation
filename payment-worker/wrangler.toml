@@ -1,0 +1,15 @@
+name = "hana-reservation-payment"
+main = "src/index.mjs"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+NEWEBPAY_ENV = "test"
+SITE_ORIGIN = "https://reservation.hanascent.com"
+# Replace with the deployed HTTPS Worker origin, without a trailing slash.
+PUBLIC_ORIGIN = "https://REPLACE_WITH_WORKER.workers.dev"
+# Secrets (wrangler secret put): NEWEBPAY_MERCHANT_ID, NEWEBPAY_HASH_KEY,
+# NEWEBPAY_HASH_IV, GAS_URL, GAS_SHARED_SECRET. Never put values here.
+
+[observability]
+enabled = false

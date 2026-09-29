@@ -1,15 +1,12 @@
-name: Check Overture Series
-# The one-time migration is complete. Do not reinsert legacy prices/payment links.
+name: Payment safety tests
 on:
+  pull_request:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/update-overture-series.yml'
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  check:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,3 +14,4 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/check-course-prices.mjs
+      - run: node --test payment-worker/test/*.test.mjs
