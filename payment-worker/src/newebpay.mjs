@@ -1,3 +1,4 @@
+import {createDecipheriv} from 'node:crypto';
 const encoder = new TextEncoder();
 export const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 export async function sha256(value) { return hex(await crypto.subtle.digest('SHA-256', encoder.encode(value))); }
@@ -26,9 +27,14 @@ export async function verifyNotification(form, env) {
   const info = form.get('TradeInfo'), sha = form.get('TradeSha');
   if (form.get('MerchantID') !== env.NEWEBPAY_MERCHANT_ID || !/^[a-fA-F0-9]{32,32768}$/.test(info || '') || info.length % 32 ||
       !equal(await signature(info, env), sha)) throw new Error('INVALID_NOTIFICATION');
-  const aes = await crypto.subtle.importKey('raw', key, 'AES-CBC', false, ['decrypt']);
-  const bytes = Uint8Array.from(info.match(/../g), x => parseInt(x, 16));
-  const decoded = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name: 'AES-CBC', iv}, aes, bytes)));
+  // NewebPay's PHP-compatible response padding can span 32 bytes. Web Crypto
+  // enforces AES's 16-byte PKCS#7 limit, so decrypt raw only AFTER SHA verification.
+  const decipher=createDecipheriv('aes-256-cbc',key,iv);decipher.setAutoPadding(false);
+  const bytes=Uint8Array.from(info.match(/../g),x=>parseInt(x,16));
+  const plain=Buffer.concat([decipher.update(bytes),decipher.final()]);
+  const pad=plain[plain.length-1];
+  if(pad<1||pad>32||pad>plain.length||!plain.subarray(-pad).every(x=>x===pad))throw new Error('INVALID_NOTIFICATION');
+  const decoded=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(plain.subarray(0,-pad)));
   const r = decoded.Result;
   if (!r || r.MerchantID !== env.NEWEBPAY_MERCHANT_ID || !/^[A-Za-z0-9_]{1,30}$/.test(r.MerchantOrderNo || '') ||
       !/^\d+$/.test(String(r.Amt)) || !Number.isSafeInteger(Number(r.Amt)) || Number(r.Amt) <= 0 || typeof decoded.Status !== 'string') throw new Error('INVALID_NOTIFICATION');

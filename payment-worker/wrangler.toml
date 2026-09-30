@@ -1,6 +1,7 @@
 name = "hana-course-test"
 main = "src/index.mjs"
 compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [vars]

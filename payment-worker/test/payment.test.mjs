@@ -64,3 +64,19 @@ test('card wallets and LINE Pay are enabled while deferred payment remains disab
  assert.equal((await verifyNotification(signed({...result,PaymentType:'LINEPAY'}),env)).status,'PAID');
  await assert.rejects(verifyNotification(signed({...result,PaymentType:'CVS'}),env));
 });
+
+test('provider 32-byte response padding is validated after signature verification',async()=>{
+ const make=(bad=false)=>{
+  let data=Buffer.from(JSON.stringify({Status:'SUCCESS',Result:result}));
+  while(32-data.length%32<=16)data=Buffer.concat([data,Buffer.from(' ')]);
+  const pad=32-data.length%32,plain=Buffer.concat([data,Buffer.alloc(pad,pad)]);
+  if(bad)plain[plain.length-2]=0;
+  const cipher=createCipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);cipher.setAutoPadding(false);
+  const info=Buffer.concat([cipher.update(plain),cipher.final()]).toString('hex');
+  const sha=createHash('sha256').update(`HashKey=${env.NEWEBPAY_HASH_KEY}&${info}&HashIV=${env.NEWEBPAY_HASH_IV}`).digest('hex').toUpperCase();
+  return new URLSearchParams({MerchantID:env.NEWEBPAY_MERCHANT_ID,TradeInfo:info,TradeSha:sha});
+ };
+ assert.equal((await verifyNotification(make(),env)).status,'PAID');
+ await assert.rejects(verifyNotification(make(true),env),/INVALID_NOTIFICATION/);
+ const tampered=make();tampered.set('TradeSha','0'.repeat(64));await assert.rejects(verifyNotification(tampered,env),/INVALID_NOTIFICATION/);
+});

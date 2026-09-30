@@ -77,3 +77,8 @@ MerchantID 雖由 Secrets 載入，MPG 協定仍要求付款表單傳送它；Ha
 - LINE Pay 需在藍新另行開通；測試商店目前未確認已開通。ATM、超商等延後付款暫不啟用，待確認繳費期限/保留名額規則。
 - 官方 MPG 2.0 文件： https://cwww.newebpay.com/website/Page/download_file?name=Online+Payment-Foreground+Scenario+API+Specification_NDNF-1.0.8.pdf
 - 自動測試增為 13 項，包含兩種通知格式、重複通知、行動支付與延後支付分離。付款確認中的既有測試訂單仍需由藍新重送通知驗收，不能手動標記 PAID。
+
+## 信用卡實際測試驗收完成
+2026-09-30 已以藍新測試商店原交易的 server-to-server NotifyURL 驗收成功：NT$1,980 訂單更新為 PAID、記錄 TradeNo/Paid At，使用者確認完成頁成功。再次由藍新重送通知後仍只有一筆已付款交易、一組場次保留，付款時間未被改寫。
+原先 503 的主因是 Web Crypto AES-CBC 對 padding 的限制與藍新 PHP-compatible 回傳格式不同；改為先驗證 TradeSha，再以 raw CBC 解密並嚴格檢查 1–32 byte padding。新增有效/損壞 padding 及簽章竄改測試，總計 14 項通過。Worker 使用 nodejs_compat；Secrets 維持 Cloudflare 加密保存。
+信用卡成功與重複通知已完成實際驗收；行動支付、信用卡失敗與正式上線尚待驗收。
