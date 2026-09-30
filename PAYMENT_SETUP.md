@@ -70,3 +70,10 @@ MerchantID 雖由 Secrets 載入，MPG 協定仍要求付款表單傳送它；Ha
 - 原 Google Sheet 人工場次覆寫不會自動同步到 D1；新場次改由管理頁維護。CSV 每次匯出目前頁最多 200 筆，可翻頁。
 - 管理密鑰僅保存在目前頁面記憶體，遺失/外洩時在 Cloudflare 更新。
 - 商品購物車、物流、庫存與發票未納入本次課程購買範圍。
+
+## 2026-09-30：通知與行動支付測試更新
+- Notify endpoint 同時處理 application/x-www-form-urlencoded 與 multipart/form-data，保留相同簽章、金額與訂單驗證。拒絕通知時僅在 admin_audit 記錄安全錯誤分類，不保存付款原文、金鑰或個資。
+- MPG 已啟用 CREDIT、ANDROIDPAY（Google Pay）、SAMSUNGPAY、LINEPAY。實際顯示仍取決於藍新商店服務開通與裝置支援；Apple Pay 依商店幕前支付設定與相容裝置顯示。尚未對每個行動支付方式完成實際驗收。
+- LINE Pay 需在藍新另行開通；測試商店目前未確認已開通。ATM、超商等延後付款暫不啟用，待確認繳費期限/保留名額規則。
+- 官方 MPG 2.0 文件： https://cwww.newebpay.com/website/Page/download_file?name=Online+Payment-Foreground+Scenario+API+Specification_NDNF-1.0.8.pdf
+- 自動測試增為 13 項，包含兩種通知格式、重複通知、行動支付與延後支付分離。付款確認中的既有測試訂單仍需由藍新重送通知驗收，不能手動標記 PAID。

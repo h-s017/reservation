@@ -32,9 +32,9 @@ export async function verifyNotification(form, env) {
   const r = decoded.Result;
   if (!r || r.MerchantID !== env.NEWEBPAY_MERCHANT_ID || !/^[A-Za-z0-9_]{1,30}$/.test(r.MerchantOrderNo || '') ||
       !/^\d+$/.test(String(r.Amt)) || !Number.isSafeInteger(Number(r.Amt)) || Number(r.Amt) <= 0 || typeof decoded.Status !== 'string') throw new Error('INVALID_NOTIFICATION');
-  // Only the immediate CREDIT channel is enabled. A successful authorization
+  // Immediate card wallets use CREDIT; LINE Pay has its own payment type. A successful authorization
   // must have a provider trade number; never accept a ReturnURL as evidence.
-  if (decoded.Status === 'SUCCESS' && (r.PaymentType !== 'CREDIT' || !/^[A-Za-z0-9_-]{1,50}$/.test(r.TradeNo || ''))) throw new Error('INVALID_NOTIFICATION');
+  if (decoded.Status === 'SUCCESS' && (!['CREDIT','LINEPAY'].includes(r.PaymentType) || !/^[A-Za-z0-9_-]{1,50}$/.test(r.TradeNo || ''))) throw new Error('INVALID_NOTIFICATION');
   return {merchantOrderNo: r.MerchantOrderNo, amount: Number(r.Amt), tradeNo: r.TradeNo || '', status: decoded.Status === 'SUCCESS' ? 'PAID' : 'FAILED'};
 }
 export async function checkout(order, env) {
@@ -42,7 +42,7 @@ export async function checkout(order, env) {
   const info = await encrypt({
     MerchantID: env.NEWEBPAY_MERCHANT_ID, RespondType: 'JSON', TimeStamp: String(order.attempt.timestamp), Version: '2.0',
     MerchantOrderNo: order.attempt.id, Amt: String(order.amount), ItemDesc: order.course.slice(0, 40), Email: order.email,
-    LoginType: '0', CREDIT: '1', WEBATM: '0', VACC: '0', CVS: '0', BARCODE: '0', ANDROIDPAY: '0', SAMSUNGPAY: '0', LINEPAY: '0',
+    LoginType: '0', CREDIT: '1', WEBATM: '0', VACC: '0', CVS: '0', BARCODE: '0', ANDROIDPAY: '1', SAMSUNGPAY: '1', LINEPAY: '1',
     NotifyURL: env.PUBLIC_ORIGIN + '/payment/notify', ReturnURL: env.PUBLIC_ORIGIN + '/payment/return',
     ClientBackURL: env.SITE_ORIGIN + '/?payment=return'
   }, env);

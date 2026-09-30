@@ -35,3 +35,32 @@ test('checkout is test by default and keeps secrets out of gateway fields',async
   assert.ok(!JSON.stringify(p).includes(env.NEWEBPAY_HASH_KEY));
   await assert.rejects(checkout({attempt:{}},{...env,NEWEBPAY_ENV:'typo'}));
 });
+
+// Provider callbacks may use multipart/form-data (PHP cURL array POST).
+import {fixture} from './db.mjs';
+import {createOrder,startCheckout,ownedOrder} from '../src/orders.mjs';
+test('notify accepts multipart and urlencoded signed callbacks without duplicate orders',async()=>{
+ for(const multipart of [false,true]) {
+  const DB=fixture(),hash='a'.repeat(64);
+  const o=await createOrder(DB,hash,{slotIds:['s'],name:'Test',phone:'0912345678',email:'test@example.com',line:'test',note:''});
+  const attempt=await startCheckout(DB,hash,o.id);
+  const fields=signed({...result,MerchantOrderNo:attempt.attempt.id});
+  const makeBody=()=>{if(!multipart)return new URLSearchParams(fields);const f=new FormData();for(const [k,v]of fields)f.set(k,v);return f;};
+  for(let i=0;i<2;i++){
+   const response=await worker.fetch(new Request('https://payment.example.com/payment/notify',{method:'POST',body:makeBody()}),{...env,DB});
+   assert.equal(response.status,200);assert.equal(await response.text(),'SUCCESS');
+  }
+  assert.equal((await ownedOrder(DB,hash)).status,'PAID');
+  assert.equal(DB.sqlite.prepare('SELECT count(*) n FROM orders').get().n,1);
+  assert.equal(DB.sqlite.prepare("SELECT booked FROM slots WHERE id='s'").get().booked,1);
+ }
+});
+test('card wallets and LINE Pay are enabled while deferred payment remains disabled',async()=>{
+ const p=await checkout({amount:6500,course:'課程',email:'test@example.com',attempt:{id:'H123',timestamp:1}},env);
+ const decipher=createDecipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
+ const fields=new URLSearchParams(Buffer.concat([decipher.update(Buffer.from(p.fields.TradeInfo,'hex')),decipher.final()]).toString());
+ for(const method of ['CREDIT','ANDROIDPAY','SAMSUNGPAY','LINEPAY'])assert.equal(fields.get(method),'1');
+ for(const method of ['VACC','CVS','BARCODE'])assert.equal(fields.get(method),'0');
+ assert.equal((await verifyNotification(signed({...result,PaymentType:'LINEPAY'}),env)).status,'PAID');
+ await assert.rejects(verifyNotification(signed({...result,PaymentType:'CVS'}),env));
+});
