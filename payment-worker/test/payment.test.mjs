@@ -60,6 +60,8 @@ test('card wallets and LINE Pay are enabled while deferred payment remains disab
  const decipher=createDecipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
  const fields=new URLSearchParams(Buffer.concat([decipher.update(Buffer.from(p.fields.TradeInfo,'hex')),decipher.final()]).toString());
  for(const method of ['CREDIT','ANDROIDPAY','SAMSUNGPAY','LINEPAY'])assert.equal(fields.get(method),'1');
+ assert.equal(fields.get('InstFlag'),'3');
+ assert.equal(fields.get('Amt'),'6500');
  for(const method of ['VACC','CVS','BARCODE'])assert.equal(fields.get(method),'0');
  assert.equal((await verifyNotification(signed({...result,PaymentType:'LINEPAY'}),env)).status,'PAID');
  await assert.rejects(verifyNotification(signed({...result,PaymentType:'CVS'}),env));
@@ -79,4 +81,40 @@ test('provider 32-byte response padding is validated after signature verificatio
  assert.equal((await verifyNotification(make(),env)).status,'PAID');
  await assert.rejects(verifyNotification(make(true),env),/INVALID_NOTIFICATION/);
  const tampered=make();tampered.set('TradeSha','0'.repeat(64));await assert.rejects(verifyNotification(tampered,env),/INVALID_NOTIFICATION/);
+});
+
+import {saveAccount,reconcileExpired,queryTrade} from '../src/atm.mjs';
+import {verifyAccount} from '../src/newebpay.mjs';
+function providerResponse(a,status='0',valid=true){
+ const r={MerchantID:env.NEWEBPAY_MERCHANT_ID,MerchantOrderNo:a.id,Amt:a.amount,TradeNo:'T123',PaymentType:'VACC',TradeStatus:status};
+ const fields=new URLSearchParams({Amt:String(r.Amt),MerchantID:r.MerchantID,MerchantOrderNo:r.MerchantOrderNo,TradeNo:r.TradeNo});
+ r.CheckCode=valid?createHash('sha256').update('HashIV='+env.NEWEBPAY_HASH_IV+'&'+fields+'&HashKey='+env.NEWEBPAY_HASH_KEY).digest('hex').toUpperCase():'BAD';
+ return Response.json({Status:'SUCCESS',Result:r});
+}
+test('ATM deadline is 48 hours, bank is KGI, and account callback never pays an order',async()=>{
+ const DB=fixture(),hash='b'.repeat(64);const o=await createOrder(DB,hash,{slotIds:['s'],name:'Test',phone:'0912345678',email:'test@example.com',line:'',note:''});
+ const a=await startCheckout(DB,hash,o.id);assert.equal(a.attempt.deadline-a.attempt.timestamp,172800);
+ const p=await checkout(a,env),dec=createDecipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
+ const params=new URLSearchParams(Buffer.concat([dec.update(Buffer.from(p.fields.TradeInfo,'hex')),dec.final()]).toString());
+ assert.equal(params.get('VACC'),'1');assert.equal(params.get('BankType'),'KGI');assert.equal(params.get('InstFlag'),'3');assert.equal(params.get('Version'),'2.3');
+ const date=params.get('ExpireDate'),n={...result,MerchantOrderNo:a.attempt.id,PaymentType:'VACC',BankCode:'809',CodeNo:'12345678901234',ExpireDate:date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6),ExpireTime:params.get('ExpireTime')};
+ const parsed=await verifyAccount(signed(n),env);await saveAccount(DB,parsed);await saveAccount(DB,parsed);
+ assert.equal((await ownedOrder(DB,hash)).status,'PENDING');
+ await assert.rejects(verifyNotification(signed(n),env));
+ assert.equal((await verifyNotification(signed({...n,PayTime:'2026-10-01 12:00:00'}),env)).status,'PAID');
+ await assert.rejects(saveAccount(DB,{...parsed,deadline:parsed.deadline+3600}));
+ const again=await startCheckout(DB,hash,o.id);assert.equal(again.attempt.id,a.attempt.id);assert.equal(again.attempt.deadline,a.attempt.deadline);
+ const short=await checkout({...a,attempt:{...a.attempt,deadline:0}},env),d2=createDecipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
+ assert.equal(new URLSearchParams(Buffer.concat([d2.update(Buffer.from(short.fields.TradeInfo,'hex')),d2.final()]).toString()).get('VACC'),'0');
+});
+test('expired ATM releases seats only after authenticated unpaid result; paid/failed query keeps seats',async()=>{
+ for(const outcome of ['unpaid','paid','invalid','network']){
+  const DB=fixture(),hash='c'.repeat(64),o=await createOrder(DB,hash,{slotIds:['s'],name:'Test',phone:'0912345678',email:'test@example.com',line:'',note:''});
+  const a=await startCheckout(DB,hash,o.id);
+  DB.sqlite.prepare("UPDATE payment_attempts SET deadline=?,payment_method='VACC',account_no='12345678901234',bank_code='809' WHERE id=?").run(Math.floor(Date.now()/1000)-1200,a.attempt.id);
+  const fetcher=async()=>{if(outcome==='network')throw Error('network');return providerResponse({id:a.attempt.id,amount:o.amount},outcome==='paid'?'1':'0',outcome!=='invalid');};
+  await reconcileExpired({...env,DB},fetcher);
+  assert.equal((await ownedOrder(DB,hash)).status,outcome==='unpaid'?'CANCELLED':'PENDING');
+  assert.equal(DB.sqlite.prepare("SELECT booked FROM slots WHERE id='s'").get().booked,outcome==='unpaid'?0:1);
+ }
 });

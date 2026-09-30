@@ -22,7 +22,7 @@ export async function encrypt(parameters, env) {
   // Web Crypto applies PKCS#7; do not add a second padding layer.
   return hex(await crypto.subtle.encrypt({name: 'AES-CBC', iv}, aes, encoder.encode(new URLSearchParams(parameters).toString())));
 }
-export async function verifyNotification(form, env) {
+async function decodeNotification(form, env) {
   const {key, iv} = keyAndIV(env);
   const info = form.get('TradeInfo'), sha = form.get('TradeSha');
   if (form.get('MerchantID') !== env.NEWEBPAY_MERCHANT_ID || !/^[a-fA-F0-9]{32,32768}$/.test(info || '') || info.length % 32 ||
@@ -38,20 +38,34 @@ export async function verifyNotification(form, env) {
   const r = decoded.Result;
   if (!r || r.MerchantID !== env.NEWEBPAY_MERCHANT_ID || !/^[A-Za-z0-9_]{1,30}$/.test(r.MerchantOrderNo || '') ||
       !/^\d+$/.test(String(r.Amt)) || !Number.isSafeInteger(Number(r.Amt)) || Number(r.Amt) <= 0 || typeof decoded.Status !== 'string') throw new Error('INVALID_NOTIFICATION');
-  // Immediate card wallets use CREDIT; LINE Pay has its own payment type. A successful authorization
-  // must have a provider trade number; never accept a ReturnURL as evidence.
-  if (decoded.Status === 'SUCCESS' && (!['CREDIT','LINEPAY'].includes(r.PaymentType) || !/^[A-Za-z0-9_-]{1,50}$/.test(r.TradeNo || ''))) throw new Error('INVALID_NOTIFICATION');
-  return {merchantOrderNo: r.MerchantOrderNo, amount: Number(r.Amt), tradeNo: r.TradeNo || '', status: decoded.Status === 'SUCCESS' ? 'PAID' : 'FAILED'};
+  return decoded;
+}
+export async function verifyNotification(form,env){
+  const decoded=await decodeNotification(form,env),r=decoded.Result;
+  // Account issuance is not payment. VACC paid notifications must contain PayTime.
+  if(decoded.Status==='SUCCESS'&&(!['CREDIT','LINEPAY','VACC'].includes(r.PaymentType)||!r.TradeNo||!(/^[A-Za-z0-9_-]{1,50}$/).test(r.TradeNo)||(r.PaymentType==='VACC'&&!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(r.PayTime||''))))throw new Error('INVALID_NOTIFICATION');
+  return {merchantOrderNo:r.MerchantOrderNo,amount:Number(r.Amt),tradeNo:r.TradeNo||'',status:decoded.Status==='SUCCESS'?'PAID':'FAILED'};
+}
+export async function verifyAccount(form,env){
+  const d=await decodeNotification(form,env),r=d.Result;
+  if(d.Status!=='SUCCESS'||r.PaymentType!=='VACC'||r.BankCode!=='809'||!/^\d{10,30}$/.test(r.CodeNo||''))throw new Error('INVALID_NOTIFICATION');
+  const time=String(r.ExpireTime||'').replaceAll(':','');
+  const deadline=Date.parse(r.ExpireDate+'T'+time.slice(0,2)+':'+time.slice(2,4)+':'+time.slice(4,6)+'+08:00')/1000;
+  if(!Number.isSafeInteger(deadline))throw new Error('INVALID_NOTIFICATION');
+  return {merchantOrderNo:r.MerchantOrderNo,amount:Number(r.Amt),tradeNo:r.TradeNo,bankCode:r.BankCode,account:r.CodeNo,deadline};
 }
 export async function checkout(order, env) {
   if (!['test', 'production'].includes(env.NEWEBPAY_ENV)) throw new Error('CONFIGURATION');
+  const a=order.attempt,atm=Number.isSafeInteger(a.deadline)&&a.deadline>Math.floor(Date.now()/1000);
+  const expiry=atm?new Date((a.deadline+28800)*1000).toISOString():'';
   const info = await encrypt({
-    MerchantID: env.NEWEBPAY_MERCHANT_ID, RespondType: 'JSON', TimeStamp: String(order.attempt.timestamp), Version: '2.0',
+    MerchantID: env.NEWEBPAY_MERCHANT_ID, RespondType: 'JSON', TimeStamp: String(Math.floor(Date.now()/1000)), Version: '2.3',
     MerchantOrderNo: order.attempt.id, Amt: String(order.amount), ItemDesc: order.course.slice(0, 40), Email: order.email,
-    LoginType: '0', CREDIT: '1', WEBATM: '0', VACC: '0', CVS: '0', BARCODE: '0', ANDROIDPAY: '1', SAMSUNGPAY: '1', LINEPAY: '1',
+    LoginType: '0', CREDIT: '1', InstFlag: '3', WEBATM: '0', VACC: atm?'1':'0', CVS: '0', BARCODE: '0', APPLEPAY:'1', ANDROIDPAY: '1', SAMSUNGPAY: '1', LINEPAY: '1',
+    ...(atm?{BankType:'KGI',ExpireDate:expiry.slice(0,10).replaceAll('-',''),ExpireTime:expiry.slice(11,19).replaceAll(':',''),CustomerURL:env.PUBLIC_ORIGIN+'/payment/account'}:{}),
     NotifyURL: env.PUBLIC_ORIGIN + '/payment/notify', ReturnURL: env.PUBLIC_ORIGIN + '/payment/return',
     ClientBackURL: env.SITE_ORIGIN + '/?payment=return'
   }, env);
   return {action: env.NEWEBPAY_ENV === 'test' ? 'https://ccore.newebpay.com/MPG/mpg_gateway' : 'https://core.newebpay.com/MPG/mpg_gateway',
-    fields: {MerchantID: env.NEWEBPAY_MERCHANT_ID, TradeInfo: info, TradeSha: await signature(info, env), Version: '2.0', EncryptType: '0'}};
+    fields: {MerchantID: env.NEWEBPAY_MERCHANT_ID, TradeInfo: info, TradeSha: await signature(info, env), Version: '2.3', EncryptType: '0'}};
 }

@@ -82,3 +82,15 @@ MerchantID 雖由 Secrets 載入，MPG 協定仍要求付款表單傳送它；Ha
 2026-09-30 已以藍新測試商店原交易的 server-to-server NotifyURL 驗收成功：NT$1,980 訂單更新為 PAID、記錄 TradeNo/Paid At，使用者確認完成頁成功。再次由藍新重送通知後仍只有一筆已付款交易、一組場次保留，付款時間未被改寫。
 原先 503 的主因是 Web Crypto AES-CBC 對 padding 的限制與藍新 PHP-compatible 回傳格式不同；改為先驗證 TradeSha，再以 raw CBC 解密並嚴格檢查 1–32 byte padding。新增有效/損壞 padding 及簽章竄改測試，總計 14 項通過。Worker 使用 nodejs_compat；Secrets 維持 Cloudflare 加密保存。
 信用卡成功與重複通知已完成實際驗收；行動支付、信用卡失敗與正式上線尚待驗收。
+
+## 2026-10-01：三期與 ATM 48 小時
+- 最新決定：只提供信用卡 3 期（InstFlag=3），課程總價不變、不加收費用；商店負擔藍新約定費率。6/12/18/24/30 期不由網站開放。
+- MPG 更新為 2.3，啟用 Apple Pay 參數，保留其他即時付款。ATM 使用凱基銀行虛擬帳號（KGI/809），依官方規格支援 ExpireTime 精確截止時間。
+- 48 小時從首次前往金流建立交易時計算，重整/重試不延長。為保留原先上課前 36 小時規則，距首堂課不足 84 小時僅提供即時付款。
+- 取號由 /payment/account 驗證簽章、商店、金額、銀行及期限後記錄帳號；只顯示待轉帳，不改 PAID。付款成功仍只由已驗證的 NotifyURL 更新。
+- 新增 payment-worker/src/atm.mjs、migrations/0004_atm.sql；取號與付款更新原訂單。CustomerURL： https://hana-course-test.hana-reservation-payment.workers.dev/payment/account （請求會自動带入）。
+- 逾期至少 10 分鐘後，由每 10 分鐘排程查詢藍新交易狀態並驗證 CheckCode，確認未付款/失敗/取消才釋放名額。實際名額釋放通常晚於付款截止 10–20 分鐘；查詢失敗或顯示已付款但通知未到，暫時保留並重試，不能保證期限一到立刻釋放。
+- 未返回網站而未記錄取號的交易仍保守保留名額，需藍新核對；極晚入帳且已取消的異常通知會拒絕並留安全錯誤分類，需人工核對與退款/重新安排，不會超賣。
+- 測試：選至少 84 小時後的課程，前往付款檢查「3期」與 ATM/凱基；ATM 取號後須顯示虛擬帳號及48小時截止時間，未繳費不可報名完成；藍新測試後台模擬入帳後才可 PAID，再次通知不可重複保留名額。
+- 16 項自動測試及手機/桌面既有流程通過。三期實際交易、ATM 實際取號/付款/48 小時逾期仍待藍新端到端驗收，不能視為正式收款已就緒。
+- 官方規格： https://www.newebpay.com/website/Page/download_file?name=線上交易─幕前支付技術串接手冊_NDNF-1.2.5.pdf

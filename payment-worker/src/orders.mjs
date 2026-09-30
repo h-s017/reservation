@@ -5,14 +5,15 @@ export const sql=(db,text,...args)=>db.prepare(text).bind(...args);
 async function getOrder(db,where,...args){
   const row=await sql(db,'SELECT * FROM orders WHERE '+where,...args).first();
   if(!row)fail('NOT_FOUND');
-  const slots=await sql(db,'SELECT s.id,s.date,s.time FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=? ORDER BY s.starts_at',row.id).all();
-  const attempt=await sql(db,'SELECT id,timestamp,status FROM payment_attempts WHERE order_id=? ORDER BY ordinal DESC LIMIT 1',row.id).first();
+  const slots=await sql(db,'SELECT s.id,s.date,s.time,s.starts_at FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=? ORDER BY s.starts_at',row.id).all();
+  const attempt=await sql(db,'SELECT * FROM payment_attempts WHERE order_id=? ORDER BY ordinal DESC LIMIT 1',row.id).first();
   return {...row,slots:slots.results,attempt};
 }
 export const ownedOrder=(db,hash,orderId)=>getOrder(db,'access_hash=? AND (? IS NULL OR id=?)',hash,orderId||null,orderId||null);
 export function publicOrder(o){
   const {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at}=o;
-  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at};
+  const a=o.attempt;const transfer=a?.account_no?{bankCode:a.bank_code,account:a.account_no,deadline:a.deadline,expired:a.deadline<=now()}:null;
+  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer};
 }
 export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})){
   const rows=await sql(db,`SELECT s.id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
@@ -52,8 +53,8 @@ export async function startCheckout(db,hash,orderId){
   try{
     await db.batch([
       sql(db,"UPDATE orders SET status='PENDING',hold_until=? WHERE id=? AND status IN ('CANCELLED','FAILED','PENDING')",now()+1800,order.id),
-      sql(db,`INSERT INTO payment_attempts(id,order_id,ordinal,status,timestamp)
-        SELECT ?,?,COALESCE(MAX(ordinal),0)+1,'PENDING',? FROM payment_attempts WHERE order_id=? HAVING COALESCE(MAX(ordinal),0)<20`,id('H'),order.id,now(),order.id)
+      sql(db,`INSERT INTO payment_attempts(id,order_id,ordinal,status,timestamp,deadline)
+        SELECT ?,?,COALESCE(MAX(ordinal),0)+1,'PENDING',?,? FROM payment_attempts WHERE order_id=? HAVING COALESCE(MAX(ordinal),0)<20`,id('H'),order.id,now(),Math.min(...order.slots.map(s=>s.starts_at))>=now()+302400?now()+172800:0,order.id)
     ]);
   }catch(e){
     const latest=await ownedOrder(db,hash,order.id);

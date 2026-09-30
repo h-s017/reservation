@@ -1,14 +1,15 @@
-import {checkout,sha256,verifyNotification,equal} from './newebpay.mjs';
+import {saveAccount,reconcileExpired} from './atm.mjs';
+import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil(expireDrafts(env.DB));},
+  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env)]));},
   async fetch(request,env){
     const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
     const reply=(data,status=200)=>Response.json(data,{status,headers});
     if(url.pathname==='/payment/return'&&['GET','POST'].includes(request.method))return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});
-    if(url.pathname==='/payment/notify'&&request.method==='POST'){
+    if(['/payment/notify','/payment/account'].includes(url.pathname)&&request.method==='POST'){
       let stage='PARSE';
-      try{const raw=await request.text();if(raw.length>40000)return reply({ok:false},413);const type=request.headers.get('Content-Type')||'';const form=type.toLowerCase().startsWith('multipart/form-data')?await new Response(raw,{headers:{'Content-Type':type}}).formData():new URLSearchParams(raw);stage='VERIFY';const notification=await verifyNotification(form,env);stage='UPDATE';await notifyOrder(env.DB,notification);return new Response('SUCCESS',{headers});}
+      try{const raw=await request.text();if(raw.length>40000)return reply({ok:false},413);const type=request.headers.get('Content-Type')||'';const form=type.toLowerCase().startsWith('multipart/form-data')?await new Response(raw,{headers:{'Content-Type':type}}).formData():new URLSearchParams(raw);if(url.pathname==='/payment/account'){stage='ACCOUNT';await saveAccount(env.DB,await verifyAccount(form,env));return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});}stage='VERIFY';const notification=await verifyNotification(form,env);stage='UPDATE';await notifyOrder(env.DB,notification);return new Response('SUCCESS',{headers});}
       catch(error){const code=['CONFIGURATION','INVALID_NOTIFICATION','NOT_FOUND','AMOUNT_MISMATCH','PAYMENT_PENDING','TRADE_CONFLICT'].includes(error.message)?error.message:'PROCESSING_ERROR';try{await env.DB.prepare('INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)').bind('NOTIFY_REJECTED',stage+':'+code+':'+(['Error','TypeError','SyntaxError','OperationError'].includes(error.name)?error.name:'OTHER'),Math.floor(Date.now()/1000)).run();}catch(_){}return reply({ok:false,error:'NOTIFICATION_NOT_ACCEPTED'},503);}
     }
     if(url.pathname==='/api/slots'&&request.method==='GET'){
@@ -45,7 +46,7 @@ export default {
       else if(url.pathname==='/orders/cancel')order=await cancelOrder(env.DB,hash,d.id);
       else if(url.pathname==='/orders/checkout'){
         if(!env.NEWEBPAY_MERCHANT_ID||new TextEncoder().encode(env.NEWEBPAY_HASH_KEY||'').length!==32||new TextEncoder().encode(env.NEWEBPAY_HASH_IV||'').length!==16||!['test','production'].includes(env.NEWEBPAY_ENV)||!/^https:\/\//.test(env.PUBLIC_ORIGIN||''))throw new Error('CONFIGURATION');
-        order=await startCheckout(env.DB,hash,d.id);if(order.status==='PENDING')payment=await checkout(order,env);
+        order=await startCheckout(env.DB,hash,d.id);if(order.status==='PENDING'&&!order.attempt.account_no)payment=await checkout(order,env);
       }else return reply({ok:false},404);
       return reply({ok:true,order:publicOrder(order),payment});
     }catch(err){

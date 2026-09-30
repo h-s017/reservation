@@ -51,7 +51,7 @@ async function submitPayment() {
   $('submitBtn').disabled=true;$('retryPayment').disabled=true;
   try {
     const {payment,order}=await paymentAPI('/orders/checkout',{id:paymentSession.id});
-    if(order.status==='PAID'){renderPaymentResult(order);return;}
+    if(order.status==='PAID'||order.transfer){renderPaymentResult(order);return;}
     if(!payment||!['https://ccore.newebpay.com/MPG/mpg_gateway','https://core.newebpay.com/MPG/mpg_gateway'].includes(payment.action))throw new Error('無法開啟付款頁，請稍後重試。');
     // Provider fields are generated server-side and used only for this form POST.
     const form=document.createElement('form');form.method='POST';form.action=payment.action;
@@ -62,14 +62,14 @@ async function submitPayment() {
 }
 function renderPaymentResult(order) {
   clearTimeout(paymentPoll);
-  const paid=order.status==='PAID',failed=['FAILED','CANCELLED'].includes(order.status);
-  $('doneTitle').textContent=paid?'報名完成':failed?'付款未完成':'付款確認中';
+  const transfer=order.transfer;const paid=order.status==='PAID',failed=['FAILED','CANCELLED'].includes(order.status);
+  $('doneTitle').textContent=paid?'報名完成':failed?'付款未完成':transfer?(transfer.expired?'繳費期限已過':'待轉帳付款'):'付款確認中';
   $('paymentCheck').hidden=!paid;$('paymentCheck').style.display=paid?'flex':'none';$('paymentCheck').textContent=paid?'✓':'';
   $('doneId').textContent=order.id;
   $('doneBody').innerHTML=(paid?'✓ 已完成付款<br>您的報名與場次已確認。':failed?'付款未完成，您可以沿用原訂單重新付款。':'尚未收到付款成功確認，請勿重複付款。若已扣款，請稍候更新付款狀態或聯繫官方 LINE。')+
-    '<br><br>'+orderDetails(order)+'<br><br>如有課程相關問題，請透過官方 LINE 聯繫。';
+    (transfer&&!paid&&!failed?'<br><br>轉帳銀行：'+esc(transfer.bankCode)+'（凱基銀行）<br>虛擬帳號：'+esc(transfer.account)+'<br>繳費期限：'+esc(new Date(transfer.deadline*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}))+'<br>請於期限內完成轉帳，入帳確認後才完成報名。逾期請勿轉帳。':'')+'<br><br>'+orderDetails(order)+'<br><br>如有課程相關問題，請透過官方 LINE 聯繫。';
   $('checkPayment').hidden=paid;$('checkPayment').onclick=refreshPayment;
-  $('retryPayment').hidden=paid;$('retryPayment').textContent=failed?'重新付款':'繼續原訂單付款';$('retryPayment').onclick=submitPayment;
+  $('retryPayment').hidden=paid||Boolean(transfer&&!failed);$('retryPayment').textContent=failed?'重新付款':'繼續原訂單付款';$('retryPayment').onclick=submitPayment;
   show('Done');
 }
 async function refreshPayment() {
@@ -95,7 +95,7 @@ async function restorePayment() {
     renderPaymentResult(order);
     if(order.status==='PENDING') {
       // Resume the same provider attempt, never create another booking on return.
-      $('retryPayment').hidden=false;$('retryPayment').textContent='繼續原訂單付款';
+      $('retryPayment').hidden=Boolean(order.transfer);$('retryPayment').textContent='繼續原訂單付款';
       let checks=0;
       const poll=async()=>{await refreshPayment();if(paymentOrder.status==='PENDING'&&++checks<12)paymentPoll=setTimeout(poll,5000);};
       paymentPoll=setTimeout(poll,5000);

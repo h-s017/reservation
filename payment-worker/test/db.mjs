@@ -2,7 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 export function database(seed=false){
   const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');
-  for(const name of ['0001_courses.sql',...(seed?['0002_catalogue.sql']:[]),'0003_payment_transitions.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
+  for(const name of ['0001_courses.sql',...(seed?['0002_catalogue.sql']:[]),'0003_payment_transitions.sql','0004_atm.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
   const db={sqlite,prepare(text){let args=[];return{bind(...a){args=a;return this;},async first(){return sqlite.prepare(text).get(...args)||null;},async all(){return{results:sqlite.prepare(text).all(...args)};},async run(){const r=sqlite.prepare(text).run(...args);return{meta:{changes:Number(r.changes)}};},execute(){const s=sqlite.prepare(text);if(/^\s*SELECT/i.test(text))return{results:s.all(...args)};return{meta:{changes:Number(s.run(...args).changes)}};}};},async batch(statements){sqlite.exec('BEGIN IMMEDIATE');try{const result=statements.map(s=>s.execute());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};return db;
 }
 export function fixture(capacity=2){
