@@ -1,4 +1,7 @@
 const NOTIFY_EMAIL = "hanasscent@gmail.com";
+const API_TOKEN = "請改成一串自訂亂碼例如hf-2026-x7k9q2";
+const DRIVE_FOLDER = "報名繳費憑證";
+const RETENTION_MONTHS = 12;
 const TZ = "Asia/Taipei";
 const BOOKING_START_AT = "2026-07-09T10:00:00+08:00";
 const BOOKING_END_DATE = "2027-05-30";
@@ -16,8 +19,8 @@ const COURSES = [
   {series:"心村限定｜Helori 香氣探索所",course:"單人調香探索課 50ML",price:1800,capacity:10,unit:"位",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"single"},
   {series:"心村限定｜Helori 香氣探索所",course:"雙人調香探索課 50ML",price:3600,capacity:5,unit:"組",times:["09:00–11:00","11:00–13:00","14:00–16:00","16:00–18:00"],mode:"single"},
   {series:"氣味藝術序曲系列",course:"Vol. 1｜一日專業調香師",price:4500,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},
-  {series:"氣味藝術序曲系列",course:"Vol. 2｜調香師的和弦練習曲",price:6500,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},
-  {series:"氣味藝術序曲系列",course:"Vol. 1 ＋ Vol. 2",price:10500,capacity:6,unit:"位",times:["10:00–16:00"],mode:"multiple",max:2,requiredSlots:2},
+  {series:"氣味藝術序曲系列",course:"Vol. 2｜調香師的和弦練習曲",price:4800,capacity:6,unit:"位",times:["10:00–16:00"],mode:"single"},
+  {series:"氣味藝術序曲系列",course:"Vol. 1 ＋ Vol. 2",price:8000,capacity:6,unit:"位",times:["10:00–16:00"],mode:"multiple",max:2,requiredSlots:2},
   {series:"氣味藝術序曲系列",course:"Vol. 0｜氣味自修室",variant:"Basic Lab｜配方練習",price:800,capacity:6,unit:"位",times:["09:00–12:00","14:00–17:00"],mode:"single"},
   {series:"氣味藝術序曲系列",course:"Vol. 0｜氣味自修室",variant:"Mini Work｜10ml 基本瓶器",price:1150,capacity:6,unit:"位",times:["09:00–12:00","14:00–17:00"],mode:"single"},
   {series:"氣味藝術序曲系列",course:"Vol. 0｜氣味自修室",variant:"Full Work｜50ml 基本瓶器",price:2080,capacity:6,unit:"位",times:["09:00–12:00","14:00–17:00"],mode:"single"},
@@ -27,151 +30,8 @@ const COURSES = [
   {series:"韓國 KPIA 調香協會系列",course:"KPIA無酒精香水課程",price:6500,capacity:4,unit:"位",times:["10:00–15:00"],mode:"single"}
 ];
 function doGet(e){if(e.parameter.action==="slots")return json({slots:getOpenSlots()});return json({ok:true,service:"hana-booking"});}
-// Payment calls are accepted only from the Worker. Set GAS_SHARED_SECRET in
-// Script Properties, matching the Worker secret; no public token can write.
-const PAYMENT_HEADERS = ['Order ID','日期','時間','金額','Payment Status','NewebPay TradeNo','Created At','Paid At','Access Hash','Payment Attempts','系列','Notification State'];
-function doPost(e) {
-  const lock = LockService.getScriptLock();
-  try {
-    const d = JSON.parse(e.postData.contents);
-    const secret = PropertiesService.getScriptProperties().getProperty('GAS_SHARED_SECRET');
-    if (!secret || secret.length < 32 || d.secret !== secret) return json({ok:false,error:'BAD_REQUEST'});
-    lock.waitLock(25000);
-    const sheet = paymentSheet_();
-    if (d.action === 'notify') return json({ok:true,order:notifyPayment_(sheet,d)});
-    if (!/^[a-f0-9]{64}$/.test(d.accessHash || '')) throw new Error('BAD_REQUEST');
-    const rows = sheet.getDataRange().getValues();
-    const index = rows.findIndex((r,i) => i > 0 && r[23] === d.accessHash && (!d.id || r[15] === d.id));
-    if (d.action === 'create' || d.action === 'contest') {
-      if (index > 0) return json({ok:true,order:orderFromRow_(rows[index])});
-      return json({ok:true,order:createOrder_(sheet,d,d.action === 'contest')});
-    }
-    if (index < 1) throw new Error('NOT_FOUND');
-    const row = rows[index], order = orderFromRow_(row);
-    if (d.action === 'status') return json({ok:true,order:order});
-    if (order.status === 'LINE_CONFIRMATION') throw new Error('BAD_REQUEST');
-    const attempts = JSON.parse(row[24] || '[]');
-    if (d.action === 'cancel') {
-      if (order.status === 'PAID' || attempts.some(a => a.status === 'PENDING')) throw new Error('PAYMENT_PENDING');
-      row[14] = row[19] = 'CANCELLED';
-    } else if (d.action === 'checkout') {
-      if (order.status === 'PAID') return json({ok:true,order:order});
-      if (!attempts.length || attempts[attempts.length - 1].status === 'FAILED') {
-        // Reacquire the original slots when retrying a cancelled order. The row
-        // and booking ID stay unchanged; only the provider attempt ID changes.
-        validateSelection_({slotIds:normalizeSlotIds({slotIds:row[2]})}, false, order.status === 'CANCELLED' ? '' : order.id);
-        if (attempts.length >= 20) throw new Error('BAD_REQUEST');
-        attempts.push({id:'H'+Utilities.getUuid().replace(/-/g,'').slice(0,28),status:'PENDING',timestamp:Math.floor(Date.now()/1000)});
-      }
-      row[14] = row[19] = 'PENDING';
-      row[24] = JSON.stringify(attempts);
-    } else throw new Error('BAD_REQUEST');
-    sheet.getRange(index+1,1,1,row.length).setValues([row]);
-    SpreadsheetApp.flush();
-    return json({ok:true,order:orderFromRow_(row)});
-  } catch (err) {
-    const safe = ['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE'];
-    return json({ok:false,error:safe.indexOf(err.message)>=0 ? err.message : 'SERVER_ERROR'});
-  } finally { if (lock.hasLock()) lock.releaseLock(); }
-}
-function paymentSheet_() {
-  const sheet = getOrCreateSheet_(SpreadsheetApp.getActiveSpreadsheet(),'報名',
-    ['報名編號','報名時間','場次ID','場次','課程','方案','姓名','電話','Email','LINE','付款平台','舊資料保留1','舊資料保留2','備註','狀態']);
-  const requiredColumns = 15 + PAYMENT_HEADERS.length;
-  if (sheet.getMaxColumns() < requiredColumns) sheet.insertColumnsAfter(sheet.getMaxColumns(),requiredColumns-sheet.getMaxColumns());
-  // Keep existing columns and historical rows in place. Only append new fields.
-  const headers = sheet.getRange(1,16,1,PAYMENT_HEADERS.length).getValues()[0];
-  if (headers.some((v,i) => v && v !== PAYMENT_HEADERS[i])) throw new Error('SCHEMA_CONFLICT');
-  sheet.getRange(1,16,1,PAYMENT_HEADERS.length).setValues([PAYMENT_HEADERS]);
-  return sheet;
-}
-function validate(d, contest) {
-  ['name','phone','email','line','note'].forEach(k => d[k] = str(d[k]));
-  if (d.website || !d.name || d.name.length > 50 || !/^[0-9+\-() ]{7,20}$/.test(d.phone)) throw new Error('BAD_REQUEST');
-  if ((!contest && !d.email) || (d.email && (d.email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)))) throw new Error('BAD_REQUEST');
-  if (d.line.length > 50 || d.note.length > 800) throw new Error('BAD_REQUEST');
-}
-function validateSelection_(d, contest, excludeId) {
-  const ids = normalizeSlotIds(d);
-  if (!ids.length || ids.length > 12 || new Set(ids).size !== ids.length || ids.some(id => id.length > 140)) throw new Error('BAD_REQUEST');
-  const available = getOpenSlots(), counts = excludeId ? getBookedCounts_(excludeId) : null;
-  const selected = ids.map(id => available.find(s => s.id === id));
-  if (selected.some(s => !s || BLOCKED_DATES.includes(s.date) || (counts ? counts[s.id] || 0 : s.booked) >= s.capacity)) throw new Error('SLOT_FULL');
-  const first = selected[0], meta = courseMeta(first.series,first.course,first.variant);
-  if (!meta || !!meta.contest !== contest) throw new Error('COURSE_UNAVAILABLE');
-  if (!selected.every(s => s.series === first.series && s.course === first.course && String(s.variant||'') === String(first.variant||''))) throw new Error('BAD_REQUEST');
-  if ((meta.mode === 'single' && selected.length !== 1) || (meta.mode === 'multiple' && selected.length > (meta.max||8)) || (meta.requiredSlots && selected.length !== meta.requiredSlots)) throw new Error('BAD_REQUEST');
-  // Mirror the existing browser rule on the server; no new booking date policy.
-  if (selected.some(s => new Date(s.date+'T'+s.time.split('–')[0]+':00+08:00').getTime() < Date.now()+36*60*60*1000)) throw new Error('SLOT_FULL');
-  // Use the approved course catalogue, never a client amount or a manual slot's price.
-  if (!contest && (!Number.isSafeInteger(meta.price) || meta.price <= 0)) throw new Error('BAD_REQUEST');
-  return {ids,selected,meta};
-}
-function sheetText_(s) { const v = String(s || ''); return /^[=+\-@]/.test(v) ? "'"+v : v; }
-function createOrder_(sheet,d,contest) {
-  validate(d,contest);
-  const {ids,selected,meta} = validateSelection_(d,contest);
-  const id = 'HF'+Utilities.getUuid().replace(/-/g,'').slice(0,28), now = new Date().toISOString();
-  const status = contest ? 'LINE_CONFIRMATION' : 'PENDING';
-  const row = [id,now,ids.join(' | '),selected.map(s=>s.date+' '+s.time).join(' / '),meta.course,meta.variant||'',
-    sheetText_(d.name),"'"+d.phone,sheetText_(d.email),sheetText_(d.line),contest?'官方LINE':'NewebPay','','',sheetText_(d.note),status,
-    id,selected.map(s=>s.date).join(' / '),selected.map(s=>s.time).join(' / '),meta.price,status,'',now,'',d.accessHash,'[]',meta.series,''];
-  sheet.appendRow(row);
-  SpreadsheetApp.flush();
-  return orderFromRow_(row);
-}
-function orderFromRow_(r) {
-  const dates = String(r[16]).split(' / '), times = String(r[17]).split(' / '), attempts = JSON.parse(r[24]||'[]');
-  return {id:r[15],status:r[19],course:r[4],variant:r[5],slots:dates.map((date,i)=>({date,time:times[i]})),
-    amount:Number(r[18]),name:r[6],phone:String(r[7]).replace(/^'/,''),email:r[8],line:r[9],attempt:attempts[attempts.length-1]};
-}
-function notifyPayment_(sheet,d) {
-  if (['PAID','FAILED'].indexOf(d.status) < 0 || !Number.isSafeInteger(d.amount)) throw new Error('BAD_REQUEST');
-  const rows = sheet.getDataRange().getValues();
-  const index = rows.findIndex((r,i) => i > 0 && r[24] && JSON.parse(r[24]).some(a => a.id === d.merchantOrderNo));
-  if (index < 1) throw new Error('NOT_FOUND');
-  const row = rows[index], attempts = JSON.parse(row[24]), attempt = attempts.find(a=>a.id===d.merchantOrderNo);
-  if (Number(row[18]) !== d.amount) throw new Error('BAD_REQUEST');
-  if (d.status === 'PAID') {
-    if (!d.tradeNo) throw new Error('BAD_REQUEST');
-    if (rows.some((r,i)=>i!==index && r[20]===d.tradeNo)) throw new Error('BAD_REQUEST');
-    if (row[19] === 'PAID') {
-      if (row[20] !== d.tradeNo) throw new Error('BAD_REQUEST');
-      return orderFromRow_(row);
-    }
-    // Never turn a released/retried failed attempt into an unverified booking.
-    // Unexpected contradictory callbacks require reconciliation and remain non-2xx.
-    if (attempt.status !== 'PENDING' || attempt !== attempts[attempts.length-1] || row[19] !== 'PENDING') throw new Error('PAYMENT_PENDING');
-    attempt.status = 'PAID';
-    row[14] = row[19] = 'PAID'; row[20] = d.tradeNo; row[22] = new Date().toISOString();
-  } else {
-    if (row[19] === 'PAID' || attempt.status === 'PAID') return orderFromRow_(row);
-    attempt.status = 'FAILED';
-    if (attempt === attempts[attempts.length-1] && row[19] !== 'CANCELLED') row[14] = row[19] = 'FAILED';
-  }
-  row[24] = JSON.stringify(attempts);
-  sheet.getRange(index+1,1,1,row.length).setValues([row]);
-  SpreadsheetApp.flush();
-  return orderFromRow_(row);
-}
-// Install a time-driven trigger (every 5 minutes). Payment persistence never
-// depends on email availability. Mark before sending for at-most-once delivery.
-function sendBookingNotifications() {
-  const lock = LockService.getScriptLock(); lock.waitLock(25000);
-  try {
-    const sheet = paymentSheet_(), rows = sheet.getDataRange().getValues();
-    rows.slice(1).forEach((r,i) => {
-      if (!['PAID','LINE_CONFIRMATION'].includes(r[19]) || r[26]) return;
-      sheet.getRange(i+2,27).setValue('SENDING'); SpreadsheetApp.flush();
-      try {
-        MailApp.sendEmail({to:NOTIFY_EMAIL,subject:(r[19]==='PAID'?'【課程已付款】':'【合作教室預約】')+r[4],
-          body:'訂單：'+r[15]+'\n課程：'+r[4]+'\n場次：'+r[3]+'\n狀態：'+r[19]+'\n金額：NT$ '+r[18]+'\n請至報名試算表查看聯絡資料。'});
-        sheet.getRange(i+2,27).setValue('SENT');
-      } catch (_) { sheet.getRange(i+2,27).setValue('CHECK_DELIVERY'); }
-    });
-  } finally { lock.releaseLock(); }
-}
-
+function doPost(e){const lock=LockService.getScriptLock();lock.waitLock(15000);try{let d;try{d=JSON.parse(e.postData.contents)}catch(_){return json({ok:false,error:"BAD_REQUEST"})}if(d.website)return json({ok:true,bookingId:"HF-000000-000"});if(d.token!==API_TOKEN)return json({ok:false,error:"BAD_REQUEST"});const v=validate(d);if(v)return json({ok:false,error:v});const ids=normalizeSlotIds(d);if(new Set(ids).size!==ids.length)return json({ok:false,error:"BAD_REQUEST"});const slots=getOpenSlots();const map={};slots.forEach(s=>map[s.id]=s);const selected=[];for(let i=0;i<ids.length;i++){const s=map[ids[i]];if(!s||s.booked>=s.capacity)return json({ok:false,error:"SLOT_FULL"});selected.push(s)}const first=selected[0],meta=courseMeta(first.series,first.course,first.variant);if(!meta)return json({ok:false,error:"BAD_REQUEST"});if(meta.mode==="single"&&selected.length!==1)return json({ok:false,error:"BAD_REQUEST"});if(meta.mode==="multiple"&&selected.length>(meta.max||8))return json({ok:false,error:"BAD_REQUEST"});if(meta.requiredSlots&&selected.length!==meta.requiredSlots)return json({ok:false,error:"BAD_REQUEST"});if(!selected.every(s=>s.series===first.series&&s.course===first.course&&String(s.variant||"")===String(first.variant||"")))return json({ok:false,error:"BAD_REQUEST"});let proofUrl="";if(d.proofBase64){const folder=getOrCreateFolder(DRIVE_FOLDER);const tag=ids[0]+"_"+Utilities.formatDate(new Date(),TZ,"yyyyMMdd-HHmmss");const blob=Utilities.newBlob(Utilities.base64Decode(d.proofBase64),"image/jpeg",tag+".jpg");const file=folder.createFile(blob);file.setSharing(DriveApp.Access.PRIVATE,DriveApp.Permission.NONE);proofUrl=file.getUrl()}const ss=SpreadsheetApp.getActiveSpreadsheet();const sheet=getOrCreateSheet_(ss,"報名",["報名編號","報名時間","場次ID","場次","課程","方案","姓名","電話","Email","LINE","繳費方式","後五碼","憑證連結","備註","狀態"]);const bookingId="HF-"+Utilities.formatDate(new Date(),TZ,"yyMMdd")+"-"+String(sheet.getLastRow()).padStart(3,"0");const slotsText=selected.map(s=>s.date+" "+s.time).join(" / ");sheet.appendRow([bookingId,Utilities.formatDate(new Date(),TZ,"yyyy-MM-dd HH:mm"),ids.join(" | "),slotsText,first.course,first.variant||"",d.name,"'"+d.phone,d.email||"",d.line||"",d.method,d.last5?"'"+d.last5:"",proofUrl,d.note||"","待對帳"]);MailApp.sendEmail({to:NOTIFY_EMAIL,subject:"【新報名待對帳】"+first.course,htmlBody:"<p>有一筆新的課程報名,場次已鎖定,請進行對帳。</p><table cellpadding='4' style='font-size:14px'><tr><td>報名編號</td><td><b>"+escHtml(bookingId)+"</b></td></tr><tr><td>課程</td><td>"+escHtml(first.course)+"</td></tr><tr><td>方案</td><td>"+escHtml(first.variant||"")+"</td></tr><tr><td>場次</td><td>"+escHtml(slotsText)+"</td></tr><tr><td>姓名</td><td>"+escHtml(d.name)+"</td></tr><tr><td>電話</td><td>"+escHtml(maskPhone(d.phone))+"</td></tr><tr><td>繳費方式</td><td>"+escHtml(d.method)+"</td></tr><tr><td>金額</td><td>NT$ "+Number(first.price).toLocaleString()+"</td></tr></table><p>完整聯絡資料、後五碼與繳費憑證請至試算表查看:<br><a href='"+ss.getUrl()+"'>開啟報名管理試算表</a></p>"});return json({ok:true,bookingId})}catch(err){console.error(err);return json({ok:false,error:"SERVER_ERROR"})}finally{lock.releaseLock()}}
+function validate(d){d.slotId=str(d.slotId);d.name=str(d.name);d.phone=str(d.phone);d.email=str(d.email);d.line=str(d.line);d.method=str(d.method);d.last5=str(d.last5);d.note=str(d.note);const ids=normalizeSlotIds(d);if(!ids.length||ids.length>12)return"BAD_REQUEST";if(ids.some(id=>!id||id.length>140))return"BAD_REQUEST";if(!d.name||d.name.length>50)return"BAD_REQUEST";if(!/^[0-9+\-() ]{7,20}$/.test(d.phone))return"BAD_REQUEST";if(d.email&&(d.email.length>100||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)))return"BAD_REQUEST";if(d.line.length>50||d.note.length>800)return"BAD_REQUEST";if(["轉帳","刷卡","分期","大賽LINE確認"].indexOf(d.method)===-1)return"BAD_REQUEST";if(d.method==="轉帳"&&!/^\d{5}$/.test(d.last5))return"BAD_REQUEST";if(d.method!=="大賽LINE確認"&&!d.proofBase64)return"BAD_REQUEST";if(d.proofBase64&&d.proofBase64.length>8000000)return"FILE_TOO_LARGE";return null}
 function normalizeSlotIds(d){if(Array.isArray(d.slotIds))return d.slotIds.map(x=>str(x)).filter(Boolean);if(typeof d.slotIds==="string")return d.slotIds.split(/[|,，、\s]+/).map(x=>str(x)).filter(Boolean);return d.slotId?[str(d.slotId)]:[]}
 function getOpenSlots(){const today=Utilities.formatDate(new Date(),TZ,"yyyy-MM-dd");const generated=generateSlots_();const manual=readManualSlots_();const counts=getBookedCounts_();const map={};generated.forEach(s=>map[s.id]=s);manual.forEach(s=>{if(s.status==="關閉")delete map[s.id];else if(s.status==="開放")map[s.id]=Object.assign(map[s.id]||{},s)});return Object.keys(map).map(id=>{const s=map[id];s.booked=BLOCKED_DATES.includes(s.date)?Number(s.capacity):(counts[id]||0);return s}).filter(s=>s.date>=today&&s.date<=BOOKING_END_DATE&&s.status!=="關閉"&&isSeptemberWindowOpen_(s.date,s.time))}
 function generateSlots_(){const slots=[];const start=parseDate_(BOOKING_START_AT.slice(0,10));const today=new Date();today.setHours(0,0,0,0);const anchor=start>today?start:today;const end=parseDate_(BOOKING_END_DATE);for(let d=new Date(anchor);d<=end;d.setDate(d.getDate()+1)){const ds=Utilities.formatDate(d,TZ,"yyyy-MM-dd");const dow=Number(Utilities.formatDate(d,TZ,"u"))%7;if(!isDateOpen_(ds,dow))continue;COURSES.forEach(c=>{if((c.startDate&&ds<c.startDate)||(c.endDate&&ds>c.endDate))return;getCourseTimesForDate_(c,ds,dow).forEach((time,i)=>{slots.push({id:makeSlotId_(c,ds,time,i),series:c.series,course:c.course,variant:c.variant||"",date:ds,time:time,price:Number(c.price),capacity:Number(c.capacity),unit:c.unit||"位",booked:0,status:"開放"})})})}return slots}
@@ -181,12 +41,13 @@ function isSeptemberWindowOpen_(ds,time){if(ds.indexOf("2026-09-")!==0)return tr
 function getStartHour_(time){const start=String(time).split("–")[0]||"";const hm=start.split(":").map(Number);return (hm[0]||0)+((hm[1]||0)/60)}
 function getEndHour_(time){const parts=String(time).split("–");const end=parts[1]||parts[0]||"";const hm=end.split(":").map(Number);return (hm[0]||0)+((hm[1]||0)/60)}
 function readManualSlots_(){const ss=SpreadsheetApp.getActiveSpreadsheet();const sheet=ss.getSheetByName("場次");if(!sheet)return[];const v=sheet.getDataRange().getValues();if(v.length<=1)return[];return v.slice(1).map(r=>({id:String(r[0]||""),series:String(r[1]||""),course:String(r[2]||""),variant:String(r[3]||""),date:r[4] instanceof Date?Utilities.formatDate(r[4],TZ,"yyyy-MM-dd"):String(r[4]||""),time:String(r[5]||""),price:Number(r[6]||0),capacity:Number(r[7]||0),unit:String(r[9]||"位"),status:String(r[8]||"")})).filter(s=>s.id)}
-function getBookedCounts_(excludeId){const ss=SpreadsheetApp.getActiveSpreadsheet();const sheet=ss.getSheetByName("報名");if(!sheet)return{};const rows=sheet.getDataRange().getValues();if(rows.length<=1)return{};const c={};rows.slice(1).forEach(r=>{const raw=String(r[2]||""),status=String(r[19]||r[14]||"");if(!raw||status==="已取消"||status==="CANCELLED"||(excludeId&&r[15]===excludeId))return;raw.split(/\s*\|\s*|[,，、]/).map(x=>x.trim()).filter(Boolean).forEach(id=>c[id]=(c[id]||0)+1)});return c}
+function getBookedCounts_(){const ss=SpreadsheetApp.getActiveSpreadsheet();const sheet=ss.getSheetByName("報名");if(!sheet)return{};const rows=sheet.getDataRange().getValues();if(rows.length<=1)return{};const c={};rows.slice(1).forEach(r=>{const raw=String(r[2]||""),status=String(r[14]||"");if(!raw||status==="已取消")return;raw.split(/\s*\|\s*|[,，、]/).map(x=>x.trim()).filter(Boolean).forEach(id=>c[id]=(c[id]||0)+1)});return c}
 function courseMeta(series,course,variant){return COURSES.find(c=>c.series===series&&c.course===course&&String(c.variant||"")===String(variant||""))||null}
 function makeSlotId_(c,date,time,i){return (slug_(c.series)+"-"+slug_(c.course)+"-"+slug_(c.variant||"")+"-"+date+"-"+String(i+1).padStart(2,"0")).slice(0,120)}
 function slug_(s){return String(s).replace(/[^A-Za-z0-9\u4e00-\u9fa5]+/g,"-").replace(/^-|-$/g,"")}
 function isDateOpen_(ds,dow){return CLOSED_DATES.indexOf(ds)===-1&&CLOSED_WEEKDAYS.indexOf(dow)===-1&&OPEN_WEEKDAYS.indexOf(dow)!==-1}
 function parseDate_(ds){const p=String(ds).split("-").map(Number);return new Date(p[0],p[1]-1,p[2])}
+function getOrCreateFolder(name){const it=DriveApp.getFoldersByName(name);return it.hasNext()?it.next():DriveApp.createFolder(name)}
 function getOrCreateSheet_(ss,name,headers){let sheet=ss.getSheetByName(name);if(!sheet){sheet=ss.insertSheet(name);sheet.appendRow(headers)}return sheet}
 function maskPhone(p){p=String(p||"");return p.length<=6?p:p.slice(0,4)+"***"+p.slice(-3)}
 function str(x){return typeof x==="string"?x.trim():""}

@@ -2,6 +2,7 @@ const {chromium}=require('playwright');
 const fs=require('fs'),http=require('http'),path=require('path'),assert=require('assert/strict');
 const root=path.resolve(__dirname,'../..');
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace("PAYMENT_API:''","PAYMENT_API:'https://payment.example.com'");
+const vm=require('vm');const ctx=vm.createContext({});vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);const slotFixture=JSON.parse(vm.runInContext('JSON.stringify(generateSlots())',ctx));
 const server=http.createServer((req,res)=>{
   const file=req.url.split('?')[0];
   if(file==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;}
@@ -23,6 +24,7 @@ const server=http.createServer((req,res)=>{
       const order={id:'HF1234567890123456789012345678',status,course:'單人調香探索課 10ML',variant:'',slots:[{date:'2026-10-01',time:'09:00–11:00'}],amount:990,name:'測試報名',phone:'0912345678',email:'test@example.com',line:'test-line'};
       await page.route('https://payment.example.com/**',async route=>{
         const req=route.request(),url=new URL(req.url());
+        if(url.pathname==='/api/slots'){await route.fulfill({headers:{'Access-Control-Allow-Origin':base},json:{slots:slotFixture}});return;}
         if(req.method()==='OPTIONS'){await route.fulfill({status:204,headers:{'Access-Control-Allow-Origin':base,'Access-Control-Allow-Headers':'authorization,content-type'}});return;}
         if(url.pathname==='/orders')creates++;
         if(url.pathname==='/orders/checkout')checkoutCalls++;

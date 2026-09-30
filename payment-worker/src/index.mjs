@@ -1,69 +1,55 @@
-import {checkout, sha256, verifyNotification} from './newebpay.mjs';
-
-async function gas(env, action, data = {}) {
-  if (!env.GAS_SHARED_SECRET || env.GAS_SHARED_SECRET.length < 32 || !/^https:\/\/script.google.com\/macros\/s\/[^/]+\/exec$/.test(env.GAS_URL || '')) throw new Error('CONFIGURATION');
-  const response = await fetch(env.GAS_URL, {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({...data, action, secret: env.GAS_SHARED_SECRET}), redirect: 'follow', signal: AbortSignal.timeout(25000)});
-  if (!response.ok) throw new Error('SERVICE_UNAVAILABLE');
-  const result = await response.json();
-  if (!result.ok) throw new Error(result.error || 'SERVICE_UNAVAILABLE');
-  return result;
-}
-function publicOrder(order) {
-  const {id, status, course, variant, slots, amount, name, phone, email, line} = order;
-  return {id, status, course, variant, slots, amount, name, phone, email, line};
-}
+import {checkout,sha256,verifyNotification,equal} from './newebpay.mjs';
+import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const headers = {'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'};
-    const reply = (data, status = 200) => Response.json(data, {status, headers});
-    // The return body is deliberately ignored; this route cannot mutate an order.
-    if (url.pathname === '/payment/return' && ['GET', 'POST'].includes(request.method))
-      return new Response(null, {status: 303, headers: {...headers, Location: env.SITE_ORIGIN + '/?payment=return'}});
-    if (url.pathname === '/payment/notify' && request.method === 'POST') {
-      try {
-        const raw = await request.text();
-        if (raw.length > 40000) return reply({ok: false}, 413);
-        const notification = await verifyNotification(new URLSearchParams(raw), env);
-        await gas(env, 'notify', notification);
-        return new Response('SUCCESS', {headers});
-      } catch (_) {
-        // Non-2xx prompts a provider retry, including when Sheets is unavailable.
-        // Never log encrypted payloads, credentials, card fields, or raw errors.
-        return reply({ok: false, error: 'NOTIFICATION_NOT_ACCEPTED'}, 503);
-      }
+  async scheduled(event,env,ctx){ctx.waitUntil(expireDrafts(env.DB));},
+  async fetch(request,env){
+    const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
+    const reply=(data,status=200)=>Response.json(data,{status,headers});
+    if(url.pathname==='/payment/return'&&['GET','POST'].includes(request.method))return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});
+    if(url.pathname==='/payment/notify'&&request.method==='POST'){
+      try{const raw=await request.text();if(raw.length>40000)return reply({ok:false},413);await notifyOrder(env.DB,await verifyNotification(new URLSearchParams(raw),env));return new Response('SUCCESS',{headers});}
+      catch(_){return reply({ok:false,error:'NOTIFICATION_NOT_ACCEPTED'},503);}
     }
-    if (request.headers.get('Origin') !== env.SITE_ORIGIN) return reply({ok: false}, 403);
-    headers['Access-Control-Allow-Origin'] = env.SITE_ORIGIN;
-    headers.Vary = 'Origin';
-    if (request.method === 'OPTIONS') return new Response(null, {status: 204, headers: {...headers,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization'}});
-    if (request.method !== 'POST') return reply({ok: false}, 405);
-    try {
-      const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
-      if (!/^[a-f0-9]{64}$/.test(token)) return reply({ok: false}, 401);
-      const raw = await request.text();
-      if (raw.length > 10000) return reply({ok: false}, 413);
-      const d = JSON.parse(raw);
-      const accessHash = await sha256(token);
-      if (url.pathname === '/orders' || url.pathname === '/contest') {
-        // Explicit allowlist: amount, payment status, trade number, etc. are never trusted.
-        const {slotIds, name, phone, email, line, note, website} = d;
-        const result = await gas(env, url.pathname === '/contest' ? 'contest' : 'create', {accessHash, slotIds, name, phone, email, line, note, website});
-        return reply({ok: true, order: publicOrder(result.order)});
+    if(url.pathname==='/api/slots'&&request.method==='GET'){
+      if(request.headers.get('Origin')===env.SITE_ORIGIN)headers['Access-Control-Allow-Origin']=env.SITE_ORIGIN;
+      try{return reply({ok:true,slots:await listSlots(env.DB)});}catch(_){return reply({ok:false,error:'SERVICE_UNAVAILABLE'},503);}
+    }
+    const api=url.pathname.startsWith('/api/')||url.pathname.startsWith('/orders')||url.pathname==='/contest';
+    if(!api){
+      if(!env.ASSETS)return reply({ok:false},404);
+      const asset=await env.ASSETS.fetch(request),h=new Headers(asset.headers);
+      for(const [k,v] of Object.entries(headers))h.set(k,v);h.set('X-Frame-Options','DENY');
+      if(url.pathname.startsWith('/admin'))h.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+      return new Response(asset.body,{status:asset.status,headers:h});
+    }
+    const admin=url.pathname.startsWith('/api/admin/'),allowedOrigin=admin?url.origin:env.SITE_ORIGIN;
+    if(request.headers.get('Origin')!==allowedOrigin)return reply({ok:false},403);
+    headers['Access-Control-Allow-Origin']=allowedOrigin;headers.Vary='Origin';
+    if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...headers,'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}});
+    if(request.method!=='POST')return reply({ok:false},405);
+    try{
+      const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
+      if(admin){
+        if(!env.ADMIN_TOKEN||env.ADMIN_TOKEN.length<32||!equal(token,env.ADMIN_TOKEN))return reply({ok:false,error:'UNAUTHORIZED'},401);
+        const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
+        return reply({ok:true,...await adminAction(env.DB,url.pathname,JSON.parse(raw))});
       }
-      if (['/orders/status', '/orders/cancel', '/orders/checkout'].includes(url.pathname)) {
-        const action = {'/orders/status': 'status', '/orders/cancel': 'cancel', '/orders/checkout': 'checkout'}[url.pathname];
-        const result = await gas(env, action, {accessHash, id: d.id});
-        const payment = action === 'checkout' && result.order.status === 'PENDING' ? await checkout(result.order, env) : undefined;
-        return reply({ok: true, order: publicOrder(result.order), payment});
-      }
-      return reply({ok: false}, 404);
-    } catch (err) {
-      const allowed = ['BAD_REQUEST', 'SLOT_FULL', 'NOT_FOUND', 'PAYMENT_PENDING', 'COURSE_UNAVAILABLE', 'CONFIGURATION'];
-      const error = allowed.includes(err.message) ? err.message : 'SERVICE_UNAVAILABLE';
-      return reply({ok: false, error}, error === 'SERVICE_UNAVAILABLE' || error === 'CONFIGURATION' ? 503 : 409);
+      if(!/^[a-f0-9]{64}$/.test(token))return reply({ok:false},401);
+      const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
+      const d=JSON.parse(raw),hash=await sha256(token);let order,payment;
+      if(url.pathname==='/orders'||url.pathname==='/contest'){
+        const {slotIds,name,phone,email,line,note,website}=d;
+        order=await createOrder(env.DB,hash,{slotIds,name,phone,email,line,note,website},url.pathname==='/contest');
+      }else if(url.pathname==='/orders/status')order=await ownedOrder(env.DB,hash,d.id);
+      else if(url.pathname==='/orders/cancel')order=await cancelOrder(env.DB,hash,d.id);
+      else if(url.pathname==='/orders/checkout'){
+        if(!env.NEWEBPAY_MERCHANT_ID||new TextEncoder().encode(env.NEWEBPAY_HASH_KEY||'').length!==32||new TextEncoder().encode(env.NEWEBPAY_HASH_IV||'').length!==16||!['test','production'].includes(env.NEWEBPAY_ENV)||!/^https:\/\//.test(env.PUBLIC_ORIGIN||''))throw new Error('CONFIGURATION');
+        order=await startCheckout(env.DB,hash,d.id);if(order.status==='PENDING')payment=await checkout(order,env);
+      }else return reply({ok:false},404);
+      return reply({ok:true,order:publicOrder(order),payment});
+    }catch(err){
+      const codes=['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE','CONFIGURATION','CAPACITY_CONFLICT','PAYMENT_ATTEMPTS_EXHAUSTED'];
+      const error=codes.includes(err.message)?err.message:'SERVICE_UNAVAILABLE';return reply({ok:false,error},['SERVICE_UNAVAILABLE','CONFIGURATION'].includes(error)?503:409);
     }
   }
 };

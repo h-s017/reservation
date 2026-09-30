@@ -5,3 +5,4 @@
 node_modules/
 .wrangler/
 test-results/
+payment-worker/public/

@@ -1,15 +1,34 @@
-name = "hana-reservation-payment"
+name = "hana-course-test"
 main = "src/index.mjs"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
 [vars]
 NEWEBPAY_ENV = "test"
-SITE_ORIGIN = "https://reservation.hanascent.com"
+SITE_ORIGIN = "https://hana-course-test.hana-reservation-payment.workers.dev"
 # Replace with the deployed HTTPS Worker origin, without a trailing slash.
-PUBLIC_ORIGIN = "https://REPLACE_WITH_WORKER.workers.dev"
+PUBLIC_ORIGIN = "https://hana-course-test.hana-reservation-payment.workers.dev"
 # Secrets (wrangler secret put): NEWEBPAY_MERCHANT_ID, NEWEBPAY_HASH_KEY,
-# NEWEBPAY_HASH_IV, GAS_URL, GAS_SHARED_SECRET. Never put values here.
+# NEWEBPAY_HASH_IV, ADMIN_TOKEN. Never put values here.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hana-course-test"
+database_id = "3b8b7819-49e4-43ce-867a-4a38daa8c286"
+migrations_dir = "migrations"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = true
+
+[build]
+command = "node ../scripts/build-worker-assets.mjs"
+
+[triggers]
+crons = ["*/10 * * * *"]
 
 [observability]
 enabled = false
+
+

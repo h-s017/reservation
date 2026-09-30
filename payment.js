@@ -9,7 +9,7 @@ function sessionForPayment() {
   return paymentSession;
 }
 async function paymentAPI(path,data={}) {
-  if (!/^https:\/\//.test(C.PAYMENT_API)) throw new Error('線上付款尚未開放，請聯繫官方 LINE。');
+  if (C.PAYMENT_API && !/^https:\/\//.test(C.PAYMENT_API)) throw new Error('線上付款尚未開放，請聯繫官方 LINE。');
   const session=sessionForPayment();
   const r=await fetch(C.PAYMENT_API.replace(/\/$/,'')+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.token},body:JSON.stringify(data)});
   const j=await r.json();
