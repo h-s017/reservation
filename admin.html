@@ -1,0 +1,5 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>課程管理｜HANA SCENT ARTIST</title><link rel="stylesheet" href="/admin.css"><script src="/admin.js" defer></script></head><body><main>
+<h1>HANA SCENT ARTIST｜課程管理</h1><form id="login"><label>管理金鑰 <input id="key" type="password" autocomplete="off" required minlength="32"></label><button>登入</button><p>金鑰只在此頁記憶體使用，重新整理後需重新登入。</p></form><p id="message" role="status"></p>
+<div id="panel" hidden><nav><button id="orders">訂單</button><button id="slots">場次與名額</button><button id="export">匯出目前訂單 CSV</button><button id="logout">登出</button></nav>
+<form id="dateForm"><label>禁約日期 <input type="date" id="date" required></label><button>關閉整日預約</button><p>不會取消已成立訂單。既有禁約日期仍保留。</p></form>
+<label>場次日期篩選 <input type="date" id="filter"></label><div class="table"><table><thead id="head"></thead><tbody id="rows"></tbody></table></div><button id="older" hidden>載入更早訂單</button><p>未決交易不可直接取消；先確認藍新交易結果。退款需在藍新後台處理。</p></div></main></body></html>
