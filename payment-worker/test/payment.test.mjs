@@ -127,3 +127,10 @@ test('ATM day-end respects Taiwan rollover and course lead time',()=>{
  assert.equal(atmDeadline(t,t+129600),0);
  assert.equal(atmDeadline(t,t+129601),t+1);
 });
+
+test('sandbox placeholder account is allowed only in test environment',async()=>{
+ const n={...result,PaymentType:'VACC',BankCode:'004',CodeNo:'TestAccount12345',ExpireDate:'2026-10-01',ExpireTime:'235959'};
+ assert.equal((await verifyAccount(signed(n),env)).account,'TestAccount12345');
+ await assert.rejects(verifyAccount(signed(n),{...env,NEWEBPAY_ENV:'production'}),/ACCOUNT_NUMBER/);
+ await assert.rejects(verifyAccount(signed({...n,CodeNo:'unexpected-account'}),env),/ACCOUNT_NUMBER/);
+});
