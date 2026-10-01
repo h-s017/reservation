@@ -3,16 +3,17 @@ const API_TOKEN = "請改成一串自訂亂碼例如hf-2026-x7k9q2";
 const DRIVE_FOLDER = "報名繳費憑證";
 const RETENTION_MONTHS = 12;
 const TZ = "Asia/Taipei";
-const API_VERSION = "2026-10-01-safe-booking-v2";
+const API_VERSION = "2026-10-01-safe-booking-v3";
 const BOOKING_START_AT = "2026-07-09T10:00:00+08:00";
 const BOOKING_END_DATE = "2027-05-30";
 const OPEN_WEEKDAYS = [0,1,2,3,4,5];
 const CLOSED_WEEKDAYS = [6];
-const CLOSED_DATES = ["2026-08-09","2026-08-10","2026-08-11","2026-09-03","2026-09-06","2026-09-13","2026-09-20","2026-10-07","2026-10-08","2026-10-11","2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-19","2026-10-20","2026-10-21","2026-10-23","2027-02-05","2027-02-06","2027-02-07","2027-02-08","2027-02-09","2027-02-10","2027-02-11","2027-02-12","2027-02-13","2027-02-14"];
-const BLOCKED_DATES = ["2026-09-06","2026-09-13","2026-09-20","2026-10-07","2026-10-08","2026-10-11","2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-19","2026-10-20","2026-10-21","2026-10-23","2026-11-22"];
+const CLOSED_DATES = ["2026-08-09","2026-08-10","2026-08-11","2026-09-03","2026-09-06","2026-09-13","2026-09-20","2026-10-05","2026-10-07","2026-10-08","2026-10-09","2026-10-11","2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-19","2026-10-20","2026-10-21","2026-10-23","2026-11-11","2026-11-13","2026-11-17","2026-11-29","2026-11-30","2026-12-04","2026-12-06","2026-12-07","2026-12-13","2026-12-14","2026-12-15","2026-12-16","2026-12-17","2026-12-20","2026-12-28","2027-02-05","2027-02-06","2027-02-07","2027-02-08","2027-02-09","2027-02-10","2027-02-11","2027-02-12","2027-02-13","2027-02-14"];
+const BLOCKED_DATES = ["2026-09-06","2026-09-13","2026-09-20","2026-10-05","2026-10-07","2026-10-08","2026-10-09","2026-10-11","2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-19","2026-10-20","2026-10-21","2026-10-23","2026-11-11","2026-11-13","2026-11-17","2026-11-22","2026-11-29","2026-11-30","2026-12-04","2026-12-06","2026-12-07","2026-12-13","2026-12-14","2026-12-15","2026-12-16","2026-12-17","2026-12-20","2026-12-28"];
+const SPECIAL_SERIES_DATES = {"2026-10-06":"心村限定｜Helori 香氣探索所"};
 const SPECIAL_COURSE_DATES = {"2026-11-15":"Vol. 1｜一日專業調香師","2026-11-16":"Vol. 2｜調香師的和弦練習曲"};
-const MANUAL_RESERVED = [{"date":"2026-11-15","course":"Vol. 1｜一日專業調香師","time":"10:00–16:00","count":1},{"date":"2026-11-16","course":"Vol. 2｜調香師的和弦練習曲","time":"10:00–16:00","count":1}];
-const SPECIAL_DATE_TIMES = {"2026-07-17":["09:00–12:00"]};
+const MANUAL_RESERVED = [{"date":"2026-10-06","series":"心村限定｜Helori 香氣探索所","time":"13:00–15:00","count":1},{"date":"2026-11-15","course":"Vol. 1｜一日專業調香師","time":"10:00–16:00","count":1},{"date":"2026-11-16","course":"Vol. 2｜調香師的和弦練習曲","time":"10:00–16:00","count":1}];
+const SPECIAL_DATE_TIMES = {"2026-07-17":["09:00–12:00"],"2026-10-06":["13:00–15:00"]};
 const SPECIAL_OPEN_HOURS = {"2026-08-17":13,"2026-08-20":13,"2026-08-28":13};
 const SEPTEMBER_WINDOWS = {"2026-09-01":[9,13],"2026-09-02":[14,20],"2026-09-07":[14,20],"2026-09-16":[14,20],"2026-09-21":[14,20]};
 const COURSES = [
@@ -38,10 +39,10 @@ function validate(d){d.slotId=str(d.slotId);d.name=str(d.name);d.phone=str(d.pho
 function normalizeSlotIds(d){if(Array.isArray(d.slotIds))return d.slotIds.map(x=>str(x)).filter(Boolean);if(typeof d.slotIds==="string")return d.slotIds.split(/[|,，、\s]+/).map(x=>str(x)).filter(Boolean);return d.slotId?[str(d.slotId)]:[]}
 function getOpenSlots(){const today=Utilities.formatDate(new Date(),TZ,"yyyy-MM-dd");const generated=generateSlots_();const manual=readManualSlots_();const counts=getBookedCounts_();const map={};generated.forEach(s=>map[s.id]=s);manual.forEach(s=>{if(s.status==="關閉")delete map[s.id];else if(s.status==="開放")map[s.id]=Object.assign(map[s.id]||{},s)});return Object.keys(map).map(id=>{const s=map[id];s.booked=BLOCKED_DATES.includes(s.date)?Number(s.capacity):(counts[id]||0)+manualReservedCount_(s);return s}).filter(s=>s.date>=today&&s.date<=BOOKING_END_DATE&&s.status!=="關閉"&&isSeptemberWindowOpen_(s.date,s.time))}
 function generateSlots_(){const slots=[];const start=parseDate_(BOOKING_START_AT.slice(0,10));const today=new Date();today.setHours(0,0,0,0);const anchor=start>today?start:today;const end=parseDate_(BOOKING_END_DATE);for(let d=new Date(anchor);d<=end;d.setDate(d.getDate()+1)){const ds=Utilities.formatDate(d,TZ,"yyyy-MM-dd");const dow=Number(Utilities.formatDate(d,TZ,"u"))%7;if(!isDateOpen_(ds,dow))continue;COURSES.forEach(c=>{if((c.startDate&&ds<c.startDate)||(c.endDate&&ds>c.endDate)||!courseAllowedOnDate_(c,ds))return;getCourseTimesForDate_(c,ds,dow).forEach((time,i)=>{slots.push({id:makeSlotId_(c,ds,time,i),series:c.series,course:c.course,variant:c.variant||"",date:ds,time:time,price:Number(c.price),capacity:Number(c.capacity),unit:c.unit||"位",booked:0,status:"開放"})})})}return slots}
-function courseAllowedOnDate_(c,ds){const only=SPECIAL_COURSE_DATES[ds];return !only||c.course===only}
-function manualReservedCount_(s){return MANUAL_RESERVED.filter(r=>r.date===s.date&&r.course===s.course&&r.time===s.time).reduce((n,r)=>n+Number(r.count||0),0)}
+function courseAllowedOnDate_(c,ds){const onlySeries=SPECIAL_SERIES_DATES[ds],onlyCourse=SPECIAL_COURSE_DATES[ds];return (!onlySeries||c.series===onlySeries)&&(!onlyCourse||c.course===onlyCourse)}
+function manualReservedCount_(s){return MANUAL_RESERVED.filter(r=>r.date===s.date&&r.time===s.time&&((r.course&&r.course===s.course)||(r.series&&r.series===s.series))).reduce((n,r)=>n+Number(r.count||0),0)}
 function getCourseTimesForDate_(c,ds,dow){if(SPECIAL_DATE_TIMES[ds])return SPECIAL_DATE_TIMES[ds];return c.times.filter(time=>isTimeOpenForDate_(ds,dow,time))}
-function isTimeOpenForDate_(ds,dow,time){if(ds.indexOf("2026-08-")===0){const open=SPECIAL_OPEN_HOURS[ds]||10;const close=(dow===3||dow===5)?19:20;return getStartHour_(time)>=open&&getEndHour_(time)<=close}if(ds.indexOf("2026-09-")===0)return isSeptemberWindowOpen_(ds,time);if(dow===3&&getEndHour_(time)>14)return false;return true}
+function isTimeOpenForDate_(ds,dow,time){if(ds.indexOf("2026-08-")===0){const open=SPECIAL_OPEN_HOURS[ds]||10;const close=(dow===3||dow===5)?19:20;return getStartHour_(time)>=open&&getEndHour_(time)<=close}if(ds.indexOf("2026-09-")===0)return isSeptemberWindowOpen_(ds,time);if(dow===3&&ds<"2026-11-01"&&getEndHour_(time)>14)return false;return true}
 function isSeptemberWindowOpen_(ds,time){if(ds.indexOf("2026-09-")!==0)return true;const w=SEPTEMBER_WINDOWS[ds];return !w||(getStartHour_(time)>=w[0]&&getEndHour_(time)<=w[1])}
 function getStartHour_(time){const start=String(time).split("–")[0]||"";const hm=start.split(":").map(Number);return (hm[0]||0)+((hm[1]||0)/60)}
 function getEndHour_(time){const parts=String(time).split("–");const end=parts[1]||parts[0]||"";const hm=end.split(":").map(Number);return (hm[0]||0)+((hm[1]||0)/60)}
