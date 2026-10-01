@@ -134,3 +134,15 @@ test('sandbox placeholder account is allowed only in test environment',async()=>
  await assert.rejects(verifyAccount(signed(n),{...env,NEWEBPAY_ENV:'production'}),/ACCOUNT_NUMBER/);
  await assert.rejects(verifyAccount(signed({...n,CodeNo:'unexpected-account'}),env),/ACCOUNT_NUMBER/);
 });
+
+test('sandbox account callback stores once, redirects and never marks paid',async()=>{
+ const DB=fixture(),hash='d'.repeat(64),o=await createOrder(DB,hash,{slotIds:['s'],name:'Test',phone:'0912345678',email:'test@example.com',line:'',note:''});
+ const a=await startCheckout(DB,hash,o.id),date=new Date((a.attempt.deadline+28800)*1000).toISOString().slice(0,10);
+ const n={...result,MerchantOrderNo:a.attempt.id,PaymentType:'VACC',BankCode:'004',CodeNo:'TestAccount12345',ExpireDate:date,ExpireTime:'235959'};
+ for(let i=0;i<2;i++){
+  const r=await worker.fetch(new Request('https://payment.example.com/payment/account',{method:'POST',body:signed(n)}),{...env,DB});
+  assert.equal(r.status,303);assert.equal(r.headers.get('Location'),env.SITE_ORIGIN+'/?payment=return');
+ }
+ const saved=await ownedOrder(DB,hash);assert.equal(saved.status,'PENDING');assert.equal(saved.attempt.account_no,'TestAccount12345');
+ assert.equal(DB.sqlite.prepare('SELECT count(*) n FROM orders').get().n,1);
+});
