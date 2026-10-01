@@ -2,7 +2,8 @@ import {sha256,equal} from './newebpay.mjs';
 import {sql} from './orders.mjs';
 export async function saveAccount(db,n){
  const a=await sql(db,'SELECT a.*,o.amount,o.status AS order_status FROM payment_attempts a JOIN orders o ON o.id=a.order_id WHERE a.id=?',n.merchantOrderNo).first();
- if(!a||a.amount!==n.amount||!a.deadline||a.deadline!==n.deadline)throw new Error('INVALID_NOTIFICATION');
+ if(!a||a.amount!==n.amount)throw new Error('INVALID_NOTIFICATION');
+ if(!a.deadline||a.deadline!==n.deadline)throw new Error('ACCOUNT_DEADLINE_MISMATCH');
  if(a.status!=='PENDING'||a.order_status!=='PENDING')return;
  if(a.account_no&&(a.account_no!==n.account||a.bank_code!==n.bankCode))throw new Error('INVALID_NOTIFICATION');
  await sql(db,"UPDATE payment_attempts SET payment_method='VACC',bank_code=?,account_no=? WHERE id=? AND status='PENDING'",n.bankCode,n.account,a.id).run();

@@ -48,11 +48,14 @@ export async function verifyNotification(form,env){
 }
 export async function verifyAccount(form,env){
   const d=await decodeNotification(form,env),r=d.Result;
-  if(d.Status!=='SUCCESS'||r.PaymentType!=='VACC'||!/^\d{3}$/.test(r.BankCode||'')||!/^\d{10,30}$/.test(r.CodeNo||''))throw new Error('INVALID_NOTIFICATION');
+  if(d.Status!=='SUCCESS')throw new Error(/^MPG[0-9]{5}$/.test(d.Status)?'ACCOUNT_'+d.Status:'ACCOUNT_PROVIDER_FAILED');
+  if(r.PaymentType!=='VACC')throw new Error('ACCOUNT_METHOD');
+  if(!/^\d{3}$/.test(r.BankCode||''))throw new Error('ACCOUNT_BANK');
+  if(!/^\d{10,30}$/.test(r.CodeNo||''))throw new Error('ACCOUNT_NUMBER');
   const time=String(r.ExpireTime||'235959').replaceAll(':','');
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(r.ExpireDate||'')||!/^([01]\d|2[0-3])[0-5]\d[0-5]\d$/.test(time))throw new Error('INVALID_NOTIFICATION');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(r.ExpireDate||'')||!/^([01]\d|2[0-3])[0-5]\d[0-5]\d$/.test(time))throw new Error('ACCOUNT_EXPIRY_FORMAT');
   const deadline=Date.parse(r.ExpireDate+'T'+time.slice(0,2)+':'+time.slice(2,4)+':'+time.slice(4,6)+'+08:00')/1000;
-  if(!Number.isSafeInteger(deadline)||new Date((deadline+28800)*1000).toISOString().slice(0,10)!==r.ExpireDate)throw new Error('INVALID_NOTIFICATION');
+  if(!Number.isSafeInteger(deadline)||new Date((deadline+28800)*1000).toISOString().slice(0,10)!==r.ExpireDate)throw new Error('ACCOUNT_EXPIRY_DATE');
   return {merchantOrderNo:r.MerchantOrderNo,amount:Number(r.Amt),tradeNo:r.TradeNo,bankCode:r.BankCode,account:r.CodeNo,deadline};
 }
 export async function checkout(order, env) {
