@@ -6,7 +6,11 @@ export default {
   async fetch(request,env){
     const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
     const reply=(data,status=200)=>Response.json(data,{status,headers});
-    if(url.pathname==='/payment/return'&&['GET','POST'].includes(request.method))return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});
+    if(url.pathname==='/payment/return'&&['GET','POST'].includes(request.method)){
+      // Diagnostic only: ReturnURL never changes payment state or authorizes a booking.
+      if(request.method==='POST')try{const form=await request.formData();const code=String(form.get('Status')||'UNKNOWN');if(/^[A-Z0-9_]{1,40}$/.test(code))await env.DB.prepare('INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)').bind('UNVERIFIED_RETURN_CODE',code,Math.floor(Date.now()/1000)).run();}catch(_){}
+      return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});
+    }
     if(['/payment/notify','/payment/account'].includes(url.pathname)&&request.method==='POST'){
       let stage='PARSE';
       try{const raw=await request.text();if(raw.length>40000)return reply({ok:false},413);const type=request.headers.get('Content-Type')||'';const form=type.toLowerCase().startsWith('multipart/form-data')?await new Response(raw,{headers:{'Content-Type':type}}).formData():new URLSearchParams(raw);if(url.pathname==='/payment/account'){stage='ACCOUNT';await saveAccount(env.DB,await verifyAccount(form,env));return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});}stage='VERIFY';const notification=await verifyNotification(form,env);stage='UPDATE';await notifyOrder(env.DB,notification);return new Response('SUCCESS',{headers});}

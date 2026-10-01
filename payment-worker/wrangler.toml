@@ -6,6 +6,9 @@ workers_dev = true
 
 [vars]
 NEWEBPAY_ENV = "test"
+NEWEBPAY_ATM_ENABLED = "true"
+NEWEBPAY_INSTALLMENTS = "0"
+NEWEBPAY_LINEPAY_ENABLED = "false"
 SITE_ORIGIN = "https://hana-course-test.hana-reservation-payment.workers.dev"
 # Replace with the deployed HTTPS Worker origin, without a trailing slash.
 PUBLIC_ORIGIN = "https://hana-course-test.hana-reservation-payment.workers.dev"

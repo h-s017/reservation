@@ -48,21 +48,22 @@ export async function verifyNotification(form,env){
 }
 export async function verifyAccount(form,env){
   const d=await decodeNotification(form,env),r=d.Result;
-  if(d.Status!=='SUCCESS'||r.PaymentType!=='VACC'||r.BankCode!=='809'||!/^\d{10,30}$/.test(r.CodeNo||''))throw new Error('INVALID_NOTIFICATION');
-  const time=String(r.ExpireTime||'').replaceAll(':','');
+  if(d.Status!=='SUCCESS'||r.PaymentType!=='VACC'||!/^\d{3}$/.test(r.BankCode||'')||!/^\d{10,30}$/.test(r.CodeNo||''))throw new Error('INVALID_NOTIFICATION');
+  const time=String(r.ExpireTime||'235959').replaceAll(':','');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(r.ExpireDate||'')||!/^([01]\d|2[0-3])[0-5]\d[0-5]\d$/.test(time))throw new Error('INVALID_NOTIFICATION');
   const deadline=Date.parse(r.ExpireDate+'T'+time.slice(0,2)+':'+time.slice(2,4)+':'+time.slice(4,6)+'+08:00')/1000;
-  if(!Number.isSafeInteger(deadline))throw new Error('INVALID_NOTIFICATION');
+  if(!Number.isSafeInteger(deadline)||new Date((deadline+28800)*1000).toISOString().slice(0,10)!==r.ExpireDate)throw new Error('INVALID_NOTIFICATION');
   return {merchantOrderNo:r.MerchantOrderNo,amount:Number(r.Amt),tradeNo:r.TradeNo,bankCode:r.BankCode,account:r.CodeNo,deadline};
 }
 export async function checkout(order, env) {
   if (!['test', 'production'].includes(env.NEWEBPAY_ENV)) throw new Error('CONFIGURATION');
-  const a=order.attempt,atm=Number.isSafeInteger(a.deadline)&&a.deadline>Math.floor(Date.now()/1000);
+  const a=order.attempt,atm=env.NEWEBPAY_ATM_ENABLED==='true'&&Number.isSafeInteger(a.deadline)&&a.deadline>Math.floor(Date.now()/1000);
   const expiry=atm?new Date((a.deadline+28800)*1000).toISOString():'';
   const info = await encrypt({
     MerchantID: env.NEWEBPAY_MERCHANT_ID, RespondType: 'JSON', TimeStamp: String(Math.floor(Date.now()/1000)), Version: '2.3',
     MerchantOrderNo: order.attempt.id, Amt: String(order.amount), ItemDesc: order.course.slice(0, 40), Email: order.email,
-    LoginType: '0', CREDIT: '1', InstFlag: '3', WEBATM: '0', VACC: atm?'1':'0', CVS: '0', BARCODE: '0', APPLEPAY:'1', ANDROIDPAY: '1', SAMSUNGPAY: '1', LINEPAY: '1',
-    ...(atm?{BankType:'KGI',ExpireDate:expiry.slice(0,10).replaceAll('-',''),ExpireTime:expiry.slice(11,19).replaceAll(':',''),CustomerURL:env.PUBLIC_ORIGIN+'/payment/account'}:{}),
+    LoginType: '0', CREDIT: '1', InstFlag: env.NEWEBPAY_INSTALLMENTS==='3'?'3':'0', WEBATM: '0', VACC: atm?'1':'0', CVS: '0', BARCODE: '0', APPLEPAY:'1', ANDROIDPAY: '1', SAMSUNGPAY: '1', LINEPAY: env.NEWEBPAY_LINEPAY_ENABLED==='true'?'1':'0',
+    ...(atm?{ExpireDate:expiry.slice(0,10).replaceAll('-',''),CustomerURL:env.PUBLIC_ORIGIN+'/payment/account'}:{}),
     NotifyURL: env.PUBLIC_ORIGIN + '/payment/notify', ReturnURL: env.PUBLIC_ORIGIN + '/payment/return',
     ClientBackURL: env.SITE_ORIGIN + '/?payment=return'
   }, env);

@@ -7,7 +7,7 @@ import {encrypt,signature,verifyNotification,checkout} from '../src/newebpay.mjs
 import worker from '../src/index.mjs';
 
 // Synthetic fixtures only, never merchant credentials.
-const env={NEWEBPAY_MERCHANT_ID:'TEST_ONLY',NEWEBPAY_HASH_KEY:'12345678901234567890123456789012',NEWEBPAY_HASH_IV:'1234567890123456',NEWEBPAY_ENV:'test',PUBLIC_ORIGIN:'https://payment.example.com',SITE_ORIGIN:'https://reservation.hanascent.com',GAS_URL:'https://script.google.com/macros/s/test/exec',GAS_SHARED_SECRET:'synthetic-shared-secret-for-tests-only'};
+const env={NEWEBPAY_MERCHANT_ID:'TEST_ONLY',NEWEBPAY_HASH_KEY:'12345678901234567890123456789012',NEWEBPAY_HASH_IV:'1234567890123456',NEWEBPAY_ENV:'test',NEWEBPAY_ATM_ENABLED:'true',NEWEBPAY_INSTALLMENTS:'3',PUBLIC_ORIGIN:'https://payment.example.com',SITE_ORIGIN:'https://reservation.hanascent.com',GAS_URL:'https://script.google.com/macros/s/test/exec',GAS_SHARED_SECRET:'synthetic-shared-secret-for-tests-only'};
 function signed(result,status='SUCCESS'){
   const cipher=createCipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
   const info=Buffer.concat([cipher.update(JSON.stringify({Status:status,Result:result})),cipher.final()]).toString('hex');
@@ -38,7 +38,7 @@ test('checkout is test by default and keeps secrets out of gateway fields',async
 
 // Provider callbacks may use multipart/form-data (PHP cURL array POST).
 import {fixture} from './db.mjs';
-import {createOrder,startCheckout,ownedOrder} from '../src/orders.mjs';
+import {createOrder,startCheckout,ownedOrder,atmDeadline} from '../src/orders.mjs';
 test('notify accepts multipart and urlencoded signed callbacks without duplicate orders',async()=>{
  for(const multipart of [false,true]) {
   const DB=fixture(),hash='a'.repeat(64);
@@ -59,7 +59,8 @@ test('card wallets and LINE Pay are enabled while deferred payment remains disab
  const p=await checkout({amount:6500,course:'課程',email:'test@example.com',attempt:{id:'H123',timestamp:1}},env);
  const decipher=createDecipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
  const fields=new URLSearchParams(Buffer.concat([decipher.update(Buffer.from(p.fields.TradeInfo,'hex')),decipher.final()]).toString());
- for(const method of ['CREDIT','ANDROIDPAY','SAMSUNGPAY','LINEPAY'])assert.equal(fields.get(method),'1');
+ for(const method of ['CREDIT','ANDROIDPAY','SAMSUNGPAY'])assert.equal(fields.get(method),'1');
+ assert.equal(fields.get('LINEPAY'),'0');
  assert.equal(fields.get('InstFlag'),'3');
  assert.equal(fields.get('Amt'),'6500');
  for(const method of ['VACC','CVS','BARCODE'])assert.equal(fields.get(method),'0');
@@ -91,13 +92,13 @@ function providerResponse(a,status='0',valid=true){
  r.CheckCode=valid?createHash('sha256').update('HashIV='+env.NEWEBPAY_HASH_IV+'&'+fields+'&HashKey='+env.NEWEBPAY_HASH_KEY).digest('hex').toUpperCase():'BAD';
  return Response.json({Status:'SUCCESS',Result:r});
 }
-test('ATM deadline is 48 hours, bank is KGI, and account callback never pays an order',async()=>{
+test('ATM deadline is Taiwan day end, all available banks allowed, and account callback never pays an order',async()=>{
  const DB=fixture(),hash='b'.repeat(64);const o=await createOrder(DB,hash,{slotIds:['s'],name:'Test',phone:'0912345678',email:'test@example.com',line:'',note:''});
- const a=await startCheckout(DB,hash,o.id);assert.equal(a.attempt.deadline-a.attempt.timestamp,172800);
+ const a=await startCheckout(DB,hash,o.id);assert.equal(a.attempt.deadline,atmDeadline(a.attempt.timestamp,Infinity));
  const p=await checkout(a,env),dec=createDecipheriv('aes-256-cbc',env.NEWEBPAY_HASH_KEY,env.NEWEBPAY_HASH_IV);
  const params=new URLSearchParams(Buffer.concat([dec.update(Buffer.from(p.fields.TradeInfo,'hex')),dec.final()]).toString());
- assert.equal(params.get('VACC'),'1');assert.equal(params.get('BankType'),'KGI');assert.equal(params.get('InstFlag'),'3');assert.equal(params.get('Version'),'2.3');
- const date=params.get('ExpireDate'),n={...result,MerchantOrderNo:a.attempt.id,PaymentType:'VACC',BankCode:'809',CodeNo:'12345678901234',ExpireDate:date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6),ExpireTime:params.get('ExpireTime')};
+ assert.equal(params.get('VACC'),'1');assert.equal(params.get('BankType'),null);assert.equal(params.get('ExpireTime'),null);assert.equal(params.get('InstFlag'),'3');assert.equal(params.get('Version'),'2.3');
+ const date=params.get('ExpireDate'),n={...result,MerchantOrderNo:a.attempt.id,PaymentType:'VACC',BankCode:'004',CodeNo:'12345678901234',ExpireDate:date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6),ExpireTime:params.get('ExpireTime')};
  const parsed=await verifyAccount(signed(n),env);await saveAccount(DB,parsed);await saveAccount(DB,parsed);
  assert.equal((await ownedOrder(DB,hash)).status,'PENDING');
  await assert.rejects(verifyNotification(signed(n),env));
@@ -117,4 +118,12 @@ test('expired ATM releases seats only after authenticated unpaid result; paid/fa
   assert.equal((await ownedOrder(DB,hash)).status,outcome==='unpaid'?'CANCELLED':'PENDING');
   assert.equal(DB.sqlite.prepare("SELECT booked FROM slots WHERE id='s'").get().booked,outcome==='unpaid'?0:1);
  }
+});
+
+test('ATM day-end respects Taiwan rollover and course lead time',()=>{
+ const t=Date.parse('2026-10-01T15:59:58Z')/1000;
+ assert.equal(atmDeadline(t,Infinity),t+1);
+ assert.equal(atmDeadline(t+2,Infinity),t+86401);
+ assert.equal(atmDeadline(t,t+129600),0);
+ assert.equal(atmDeadline(t,t+129601),t+1);
 });

@@ -1,4 +1,8 @@
 const now=()=>Math.floor(Date.now()/1000);
+export function atmDeadline(timestamp,startsAt){
+  const end=(Math.floor((timestamp+28800)/86400)+1)*86400-28800-1;
+  return end>timestamp && end<=startsAt-129600?end:0;
+}
 const id=prefix=>prefix+crypto.randomUUID().replaceAll('-','').slice(0,28);
 const fail=code=>{throw new Error(code);};
 export const sql=(db,text,...args)=>db.prepare(text).bind(...args);
@@ -54,7 +58,7 @@ export async function startCheckout(db,hash,orderId){
     await db.batch([
       sql(db,"UPDATE orders SET status='PENDING',hold_until=? WHERE id=? AND status IN ('CANCELLED','FAILED','PENDING')",now()+1800,order.id),
       sql(db,`INSERT INTO payment_attempts(id,order_id,ordinal,status,timestamp,deadline)
-        SELECT ?,?,COALESCE(MAX(ordinal),0)+1,'PENDING',?,? FROM payment_attempts WHERE order_id=? HAVING COALESCE(MAX(ordinal),0)<20`,id('H'),order.id,now(),Math.min(...order.slots.map(s=>s.starts_at))>=now()+302400?now()+172800:0,order.id)
+        SELECT ?,?,COALESCE(MAX(ordinal),0)+1,'PENDING',?,? FROM payment_attempts WHERE order_id=? HAVING COALESCE(MAX(ordinal),0)<20`,id('H'),order.id,now(),atmDeadline(now(),Math.min(...order.slots.map(s=>s.starts_at))),order.id)
     ]);
   }catch(e){
     const latest=await ownedOrder(db,hash,order.id);

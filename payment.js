@@ -67,7 +67,7 @@ function renderPaymentResult(order) {
   $('paymentCheck').hidden=!paid;$('paymentCheck').style.display=paid?'flex':'none';$('paymentCheck').textContent=paid?'✓':'';
   $('doneId').textContent=order.id;
   $('doneBody').innerHTML=(paid?'✓ 已完成付款<br>您的報名與場次已確認。':failed?'付款未完成，您可以沿用原訂單重新付款。':'尚未收到付款成功確認，請勿重複付款。若已扣款，請稍候更新付款狀態或聯繫官方 LINE。')+
-    (transfer&&!paid&&!failed?'<br><br>轉帳銀行：'+esc(transfer.bankCode)+'（凱基銀行）<br>虛擬帳號：'+esc(transfer.account)+'<br>繳費期限：'+esc(new Date(transfer.deadline*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}))+'<br>請於期限內完成轉帳，入帳確認後才完成報名。逾期請勿轉帳。':'')+'<br><br>'+orderDetails(order)+'<br><br>如有課程相關問題，請透過官方 LINE 聯繫。';
+    (transfer&&!paid&&!failed?'<br><br>轉帳銀行：'+esc(transfer.bankCode)+'<br>虛擬帳號：'+esc(transfer.account)+'<br>繳費期限：'+esc(new Date(transfer.deadline*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}))+'<br>請於期限內完成轉帳，入帳確認後才完成報名。逾期請勿轉帳。':'')+'<br><br>'+orderDetails(order)+'<br><br>如有課程相關問題，請透過官方 LINE 聯繫。';
   $('checkPayment').hidden=paid;$('checkPayment').onclick=refreshPayment;
   $('retryPayment').hidden=paid||Boolean(transfer&&!failed);$('retryPayment').textContent=failed?'重新付款':'繼續原訂單付款';$('retryPayment').onclick=submitPayment;
   show('Done');
