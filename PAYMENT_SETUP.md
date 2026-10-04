@@ -106,3 +106,12 @@ MerchantID 雖由 Secrets 載入，MPG 協定仍要求付款表單傳送它；Ha
 根因為 Cloudflare 遠端 fetch 不相容 redirect:error。改為 redirect:manual，仍拒絕非成功 HTTP 回應並驗證商店、金額、訂單、支付方式及 CheckCode。新增安全錯誤分類，不保存原始付款回應或金鑰。21 項自動測試通過。
 使用 Wrangler 官方遠端排程測試入口執行相同 scheduled handler，藍新實際查詢確認未付款（TradeStatus=0）。00:01:37 原測試訂單 HFe2411c38925b44a3a5e7f7e2d479 更新 CANCELLED、attempt FAILED、order_slots.active=0、場次 booked=0；未手動改訂單或期限。測試 Worker 已部署修正，定期排程維持每 10 分鐘。
 ATM 取號、入帳通知、逾期查詢及名額釋放已分別以測試商店實際驗收。此次逾期執行由官方排程測試入口觸發；部署後自然排程處理其他新逾期交易仍應觀察。三期與 LINE Pay 尚未啟用；正式網站未切換。
+
+## 2026-10-05：正式環境準備完成，尚未公開
+- Worker：hana-course-production；D1：hana-course-production（7a3c2179-7ed6-485e-b450-82add22aac06）。使用 payment-worker/wrangler.production.toml 部署，勿使用預設測試設定。
+- 已套用四個 migrations；0 筆訂單、0 占用名額，14 個付費課程方案與既有特殊流程。未搬入測試訂單。
+- workers_dev=false、preview_urls=false，沒有 routes/custom domain；現有 reservation.hanascent.com 未切換。
+- NEWEBPAY_ENV=production、ATM 開啟、分期與 LINE Pay 關閉。正式 Secrets 尚待使用者在 Cloudflare Settings > Variables and Secrets 新增，類型均選 Secret：NEWEBPAY_MERCHANT_ID、NEWEBPAY_HASH_KEY、NEWEBPAY_HASH_IV、ADMIN_TOKEN（獨立隨機密碼至少 32 字元，儲存於自己的密碼管理器）。不提交 GitHub、不貼到聊天。
+- 預定正式 NotifyURL：https://reservation.hanascent.com/payment/notify；ReturnURL：https://reservation.hanascent.com/payment/return；CustomerURL：https://reservation.hanascent.com/payment/account。後端會帶入。網域切換前這些 URL 尚未指向新 Worker。
+- 正式部署：node node_modules/wrangler/bin/wrangler.js deploy --config wrangler.production.toml。Secrets CLI 必須同樣帶 --config wrangler.production.toml。
+- 設定 Secrets 後仍需核對正式商店功能、管理頁、DNS/路由切換及經授權的正式交易驗收；不得將課程售價改成 1 元。正式金鑰未提供前不能認定正式收款已可用。

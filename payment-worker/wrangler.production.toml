@@ -1,0 +1,40 @@
+# Production preparation only: no routes or public preview until approved cutover.
+name = "hana-course-production"
+main = "src/index.mjs"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+
+[vars]
+NEWEBPAY_ENV = "production"
+NEWEBPAY_ATM_ENABLED = "true"
+NEWEBPAY_INSTALLMENTS = "0"
+NEWEBPAY_LINEPAY_ENABLED = "false"
+SITE_ORIGIN = "https://reservation.hanascent.com"
+# Replace with the deployed HTTPS Worker origin, without a trailing slash.
+PUBLIC_ORIGIN = "https://reservation.hanascent.com"
+# Secrets (wrangler secret put): NEWEBPAY_MERCHANT_ID, NEWEBPAY_HASH_KEY,
+# NEWEBPAY_HASH_IV, ADMIN_TOKEN. Never put values here.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hana-course-production"
+database_id = "7a3c2179-7ed6-485e-b450-82add22aac06"
+migrations_dir = "migrations"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = true
+
+[build]
+command = "node ../scripts/build-worker-assets.mjs"
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[observability]
+enabled = false
+
+
