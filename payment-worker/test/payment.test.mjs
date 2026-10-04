@@ -146,3 +146,19 @@ test('sandbox account callback stores once, redirects and never marks paid',asyn
  const saved=await ownedOrder(DB,hash);assert.equal(saved.status,'PENDING');assert.equal(saved.attempt.account_no,'TestAccount12345');
  assert.equal(DB.sqlite.prepare('SELECT count(*) n FROM orders').get().n,1);
 });
+
+test('query diagnostics record only safe categories while retaining seats',async()=>{
+ const DB=fixture(),hash='e'.repeat(64),o=await createOrder(DB,hash,{slotIds:['s'],name:'Test',phone:'0912345678',email:'test@example.com',line:'',note:''});
+ const a=await startCheckout(DB,hash,o.id);
+ DB.sqlite.prepare("UPDATE payment_attempts SET deadline=?,payment_method='VACC' WHERE id=?").run(Math.floor(Date.now()/1000)-1200,a.attempt.id);
+ await reconcileExpired({...env,DB},async()=>Response.json({Status:'TRA10054',Message:'sensitive provider message'}));
+ assert.equal((await ownedOrder(DB,hash)).status,'PENDING');
+ const audit=DB.sqlite.prepare('SELECT action,target FROM admin_audit').all();
+ assert.deepEqual(audit.map(x=>({...x})),[{action:'ATM_QUERY_FAILED',target:'QUERY_PROVIDER_TRA10054'}]);
+});
+
+test('query uses Worker-compatible manual redirects and rejects redirects',async()=>{
+ const a={id:'H123',amount:990};
+ assert.equal(await queryTrade(a,env,async(url,options)=>{assert.equal(options.redirect,'manual');return providerResponse(a);}), '0');
+ await assert.rejects(queryTrade(a,env,async()=>new Response(null,{status:302,headers:{Location:'https://example.com'}})),/QUERY_HTTP_302/);
+});

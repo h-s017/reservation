@@ -12,12 +12,13 @@ export async function queryTrade(a,env,fetcher=fetch){
  const data=new URLSearchParams({Amt:String(a.amount),MerchantID:env.NEWEBPAY_MERCHANT_ID,MerchantOrderNo:a.id});
  const CheckValue=(await sha256('IV='+env.NEWEBPAY_HASH_IV+'&'+data+'&Key='+env.NEWEBPAY_HASH_KEY)).toUpperCase();
  const base=env.NEWEBPAY_ENV==='test'?'https://ccore.newebpay.com':'https://core.newebpay.com';
- const response=await fetcher(base+'/API/QueryTradeInfo',{method:'POST',body:new URLSearchParams({...Object.fromEntries(data),CheckValue,Version:'1.3',RespondType:'JSON',TimeStamp:String(Math.floor(Date.now()/1000))}),signal:AbortSignal.timeout(10000),redirect:'error'});
- if(!response.ok)throw new Error('QUERY_FAILED');const d=await response.json(),r=d.Result;
- if(d.Status!=='SUCCESS'||!r||r.MerchantID!==env.NEWEBPAY_MERCHANT_ID||r.MerchantOrderNo!==a.id||Number(r.Amt)!==a.amount||r.PaymentType!=='VACC'||!r.TradeNo)throw new Error('QUERY_FAILED');
+ let response;try{response=await fetcher(base+'/API/QueryTradeInfo',{method:'POST',body:new URLSearchParams({...Object.fromEntries(data),CheckValue,Version:'1.3',RespondType:'JSON',TimeStamp:String(Math.floor(Date.now()/1000))}),signal:AbortSignal.timeout(10000),redirect:'manual'});}catch(e){throw new Error(e.name==='TimeoutError'||e.name==='AbortError'?'QUERY_TIMEOUT':'QUERY_NETWORK');}
+ if(!response.ok)throw new Error('QUERY_HTTP_'+response.status);let d;try{d=await response.json();}catch(_){throw new Error('QUERY_FORMAT');}const r=d.Result;
+ if(d.Status!=='SUCCESS')throw new Error(/^\w{1,30}$/.test(d.Status||'')?'QUERY_PROVIDER_'+d.Status:'QUERY_PROVIDER_UNKNOWN');
+ if(d.Status!=='SUCCESS'||!r||r.MerchantID!==env.NEWEBPAY_MERCHANT_ID||r.MerchantOrderNo!==a.id||Number(r.Amt)!==a.amount||r.PaymentType!=='VACC'||!r.TradeNo)throw new Error('QUERY_FIELDS');
  const fields=new URLSearchParams({Amt:String(r.Amt),MerchantID:r.MerchantID,MerchantOrderNo:r.MerchantOrderNo,TradeNo:r.TradeNo});
  const expected=(await sha256('HashIV='+env.NEWEBPAY_HASH_IV+'&'+fields+'&HashKey='+env.NEWEBPAY_HASH_KEY)).toUpperCase();
- if(!equal(expected,r.CheckCode))throw new Error('QUERY_FAILED');
+ if(!equal(expected,r.CheckCode))throw new Error('QUERY_SIGNATURE');
  return String(r.TradeStatus);
 }
 export async function reconcileExpired(env,fetcher=fetch){
@@ -30,11 +31,14 @@ export async function reconcileExpired(env,fetcher=fetch){
   try{
    const status=await queryTrade(a,env,fetcher);
    // Paid or unknown results retain the seat and await the authenticated NotifyURL.
-   if(!['0','2','3'].includes(status))continue;
+   if(!['0','2','3'].includes(status)){await sql(env.DB,'INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)','ATM_QUERY_HELD',['1','6'].includes(status)?status:'UNKNOWN',timestamp).run();continue;}
    await env.DB.batch([
     sql(env.DB,"UPDATE payment_attempts SET status='FAILED' WHERE id=? AND status='PENDING'",a.id),
     sql(env.DB,"UPDATE orders SET status='CANCELLED' WHERE id=? AND status='FAILED' AND NOT EXISTS(SELECT 1 FROM payment_attempts WHERE order_id=? AND status IN ('PENDING','PAID'))",a.order_id,a.order_id)
    ]);
-  }catch(_){/* Retain seats on query/network/verification failure. Retry on next cron. */}
+  }catch(e){
+   const code=/^QUERY_(HTTP_[0-9]{3}|PROVIDER_[A-Za-z0-9_]{1,30}|FIELDS|SIGNATURE|TIMEOUT|NETWORK|FORMAT)$/.test(e.message)?e.message:'QUERY_PROCESSING_ERROR';
+   await sql(env.DB,'INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)','ATM_QUERY_FAILED',code,timestamp).run();
+  }
  }
 }
