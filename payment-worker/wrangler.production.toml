@@ -1,9 +1,9 @@
-# Production preparation only: no routes or public preview until approved cutover.
+# GitHub Pages frontend; public Worker API and callbacks. DNS remains unchanged.
 name = "hana-course-production"
 main = "src/index.mjs"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = false
+workers_dev = true
 preview_urls = false
 
 [vars]
@@ -13,7 +13,7 @@ NEWEBPAY_INSTALLMENTS = "0"
 NEWEBPAY_LINEPAY_ENABLED = "false"
 SITE_ORIGIN = "https://reservation.hanascent.com"
 # Replace with the deployed HTTPS Worker origin, without a trailing slash.
-PUBLIC_ORIGIN = "https://reservation.hanascent.com"
+PUBLIC_ORIGIN = "https://hana-course-production.hana-reservation-payment.workers.dev"
 # Secrets (wrangler secret put): NEWEBPAY_MERCHANT_ID, NEWEBPAY_HASH_KEY,
 # NEWEBPAY_HASH_IV, ADMIN_TOKEN. Never put values here.
 

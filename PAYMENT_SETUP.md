@@ -115,3 +115,8 @@ ATM 取號、入帳通知、逾期查詢及名額釋放已分別以測試商店�
 - 預定正式 NotifyURL：https://reservation.hanascent.com/payment/notify；ReturnURL：https://reservation.hanascent.com/payment/return；CustomerURL：https://reservation.hanascent.com/payment/account。後端會帶入。網域切換前這些 URL 尚未指向新 Worker。
 - 正式部署：node node_modules/wrangler/bin/wrangler.js deploy --config wrangler.production.toml。Secrets CLI 必須同樣帶 --config wrangler.production.toml。
 - 設定 Secrets 後仍需核對正式商店功能、管理頁、DNS/路由切換及經授權的正式交易驗收；不得將課程售價改成 1 元。正式金鑰未提供前不能認定正式收款已可用。
+
+## 最新上線架構：GitHub Pages + Worker API（待授權發布）
+使用者確認保留 Squarespace DNS 與 GitHub Pages。index.html 的 PAYMENT_API 改為 https://hana-course-production.hana-reservation-payment.workers.dev；Worker 的 SITE_ORIGIN 維持 https://reservation.hanascent.com，PUBLIC_ORIGIN 改為正式 Worker 網址。正式 Worker 首頁導回預約網站，管理頁使用 Worker 的 /admin.html。
+預定 NotifyURL、ReturnURL、CustomerURL 分別為正式 Worker 網址加 /payment/notify、/payment/return、/payment/account，後端自動帶入；取代前述預約網域上的 callback 設定。不變更 DNS、課程價格與舊資料。Worker 資產建置將 PAYMENT_API 清空，讓測試站持續使用自己的 API，不誤連正式訂單。
+四個正式 Secrets 名稱已確認存在；使用者表示金鑰已重設。正式值與收款能力仍需真實交易驗收。這次公開部署被自動核准審查攔下，尚未執行；須取得正式 Worker 公開部署與 GitHub Pages 發布授權後才執行。三期與 LINE Pay 仍關閉。

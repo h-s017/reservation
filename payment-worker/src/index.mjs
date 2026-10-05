@@ -22,6 +22,7 @@ export default {
     }
     const api=url.pathname.startsWith('/api/')||url.pathname.startsWith('/orders')||url.pathname==='/contest';
     if(!api){
+      if(env.NEWEBPAY_ENV==='production'&&['/','/index.html'].includes(url.pathname)&&url.origin!==env.SITE_ORIGIN)return new Response(null,{status:302,headers:{...headers,Location:env.SITE_ORIGIN+url.search}});
       if(!env.ASSETS)return reply({ok:false},404);
       const asset=await env.ASSETS.fetch(request),h=new Headers(asset.headers);
       for(const [k,v] of Object.entries(headers))h.set(k,v);h.set('X-Frame-Options','DENY');
