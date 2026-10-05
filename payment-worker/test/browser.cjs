@@ -2,7 +2,7 @@ const {chromium}=require('playwright');
 const fs=require('fs'),http=require('http'),path=require('path'),assert=require('assert/strict');
 const root=path.resolve(__dirname,'../..');
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/PAYMENT_API:'[^']*'/,"PAYMENT_API:'https://payment.example.com'");
-const vm=require('vm');const ctx=vm.createContext({});vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);const slotFixture=JSON.parse(vm.runInContext('JSON.stringify(generateSlots())',ctx));
+const vm=require('vm');const fixedTime=Date.parse('2026-09-29T02:00:00Z');class FixtureDate extends Date{constructor(...args){super(...(args.length?args:[fixedTime]));}static now(){return fixedTime;}}const ctx=vm.createContext({Date:FixtureDate});vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);const slotFixture=JSON.parse(vm.runInContext('JSON.stringify(generateSlots())',ctx));
 const server=http.createServer((req,res)=>{
   const file=req.url.split('?')[0];
   if(file==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;}
