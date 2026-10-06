@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {fixture} from './db.mjs';
+import {createOrder,startCheckout,notifyOrder,adminAction,ownedOrder,publicOrder} from '../src/orders.mjs';
+test('paid cancellation requires full refund confirmation, releases once and preserves payment history',async()=>{
+ const db=fixture(),hash='a'.repeat(64);
+ const o=await createOrder(db,hash,{slotIds:['s'],name:'測試',phone:'0912345678',email:'test@example.com',line:'test'});
+ await assert.rejects(adminAction(db,'/api/admin/refund-request',{id:o.id,reason:'測試'}),/REFUND_STATE_CONFLICT/);
+ const a=await startCheckout(db,hash,o.id),n={merchantOrderNo:a.attempt.id,amount:6500,status:'PAID',tradeNo:'refund-test'};await notifyOrder(db,n);
+ await assert.rejects(adminAction(db,'/api/admin/refund-confirm',{id:o.id,reference:'r',amount:6500,confirmed:true}),/REFUND_STATE_CONFLICT/);
+ await adminAction(db,'/api/admin/refund-request',{id:o.id,reason:'取消測試'});
+ await adminAction(db,'/api/admin/refund-request',{id:o.id,reason:'取消測試'});
+ assert.equal(db.sqlite.prepare("SELECT booked FROM slots WHERE id='s'").get().booked,1);
+ for(const data of [{amount:1,confirmed:true},{amount:6500,confirmed:false}])await assert.rejects(adminAction(db,'/api/admin/refund-confirm',{id:o.id,reference:'r',...data}),/BAD_REQUEST/);
+ const confirmation={id:o.id,reference:'refund-record-1',amount:6500,confirmed:true};
+ await adminAction(db,'/api/admin/refund-confirm',confirmation);await adminAction(db,'/api/admin/refund-confirm',confirmation);await notifyOrder(db,n);
+ const final=await ownedOrder(db,hash,o.id);assert.equal(final.status,'PAID');assert.equal(final.trade_no,'refund-test');assert.equal(final.cancellation_status,'REFUNDED');
+ assert.equal(publicOrder(final).cancellation_status,'REFUNDED');assert.equal(db.sqlite.prepare("SELECT booked FROM slots WHERE id='s'").get().booked,0);
+ assert.equal(db.sqlite.prepare("SELECT count(*) n FROM admin_audit WHERE action LIKE 'CANCELLATION_%'").get().n,2);
+ assert.equal((await startCheckout(db,hash,o.id)).cancellation_status,'REFUNDED');
+ await assert.rejects(adminAction(db,'/api/admin/refund-confirm',{...confirmation,reference:'different'}),/REFUND_STATE_CONFLICT/);
+});
