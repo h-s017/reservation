@@ -26,7 +26,7 @@ const server=http.createServer((req,res)=>{
         const req=route.request(),url=new URL(req.url());
         if(url.pathname==='/api/slots'){await route.fulfill({headers:{'Access-Control-Allow-Origin':base},json:{slots:slotFixture}});return;}
         if(req.method()==='OPTIONS'){await route.fulfill({status:204,headers:{'Access-Control-Allow-Origin':base,'Access-Control-Allow-Headers':'authorization,content-type'}});return;}
-        if(url.pathname==='/orders')creates++;
+        if(url.pathname==='/orders'){creates++;assert.equal(req.postDataJSON().quantity,3);order.quantity=3;order.unit_price=990;order.booking_unit='位';order.amount=2970;}
         if(url.pathname==='/orders/checkout')checkoutCalls++;
         const payment=url.pathname==='/orders/checkout'?{action:'https://ccore.newebpay.com/MPG/mpg_gateway',fields:{MerchantID:'TEST_ONLY',TradeInfo:'synthetic',TradeSha:'synthetic',Version:'2.0'}}:undefined;
         await route.fulfill({headers:{'Access-Control-Allow-Origin':base},json:{ok:true,order:{...order,status},payment}});
@@ -43,9 +43,11 @@ const server=http.createServer((req,res)=>{
       await page.locator('[data-date="2026-10-01"]').click();
       await page.locator('[data-slot]').first().click();
       await page.locator('#toStep4').click();
+      await page.locator('#fQuantity').selectOption('3');assert.match(await page.locator('#quantitySummary').innerText(),/2,970/);
       await page.locator('#fName').fill(order.name);await page.locator('#fPhone').fill(order.phone);await page.locator('#fEmail').fill(order.email);await page.locator('#fLine').fill(order.line);
       await page.locator('#toStep5').click();await page.locator('#step5.show').waitFor();
       assert.match(await page.locator('#summary5').innerText(),/NT\$ 990/);
+      assert.match(await page.locator('#summary5').innerText(),/報名數量：3 位/);assert.match(await page.locator('#summary5').innerText(),/2,970/);
       assert.equal(await page.getByText('報名完成',{exact:true}).count(),0);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
       if(process.env.SCREENSHOT_DIR){fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`confirmation-${width}.png`),fullPage:true});}

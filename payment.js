@@ -19,18 +19,25 @@ async function paymentAPI(path,data={}) {
 }
 function renderRegistration() {
   $('registrationFields').hidden=false;$('contestFields').hidden=true;
+  const unit=S.course.unit||'位',max=Math.max(0,Math.min(100,...S.slots.map(s=>s.capacity-s.booked)));
+  $('quantityLabel').textContent=unit==='組'?'報名組數（每組 2 位） *':'報名人數 *';
+  $('fQuantity').innerHTML=Array.from({length:max},(_,i)=>'<option value="'+(i+1)+'">'+(i+1)+' '+unit+(unit==='組'?'（'+((i+1)*2)+' 位）':'')+'</option>').join('');
+  $('fQuantity').onchange=()=>{$('quantitySummary').textContent='單價 '+money(S.course.price)+'／'+unit+' × '+($('fQuantity').value||0)+' '+unit+'，合計 '+money(S.course.price*Number($('fQuantity').value||0));};
+  $('fQuantity').onchange();
   $('step4Title').textContent='填寫報名資料';$('toStep5').disabled=false;
   $('toStep5').textContent='確認訂單';$('toStep5').onclick=prepareOrder;
 }
 function orderDetails(order,contacts=false) {
   return '課程：'+esc(order.course)+(order.variant?'<br>方案：'+esc(order.variant):'')+
     order.slots.map(s=>'<br>日期：'+esc(s.date)+'<br>時間：'+esc(s.time)).join('')+
-    '<br>金額：'+money(order.amount)+'<br>訂單編號：'+esc(order.id)+
+    '<br>報名數量：'+esc(String(order.quantity||1))+' '+esc(order.booking_unit||'位')+(order.booking_unit==='組'?'（共 '+((order.quantity||1)*2)+' 位）':'')+'<br>單價：'+money(order.unit_price??order.amount)+'<br>總金額：'+money(order.amount)+'<br>訂單編號：'+esc(order.id)+
     (contacts?'<br><br>姓名：'+esc(order.name)+'<br>手機：'+esc(order.phone)+'<br>Email：'+esc(order.email)+'<br>LINE：'+esc(order.line||'未填寫'):'');
 }
 async function prepareOrder() {
   if(!validateSlots())return;
-  const payload={slotIds:S.slots.map(s=>s.id),name:$('fName').value.trim(),phone:$('fPhone').value.trim(),email:$('fEmail').value.trim(),line:$('fLine').value.trim(),note:$('fNote').value.trim(),website:$('fWebsite').value};
+  const quantity=Number($('fQuantity').value);
+  if(!Number.isInteger(quantity)||quantity<1||S.slots.some(s=>quantity>s.capacity-s.booked)){showMsg('所選場次剩餘名額不足，請重新選擇人數與場次。');return;}
+  const payload={quantity,slotIds:S.slots.map(s=>s.id),name:$('fName').value.trim(),phone:$('fPhone').value.trim(),email:$('fEmail').value.trim(),line:$('fLine').value.trim(),note:$('fNote').value.trim(),website:$('fWebsite').value};
   if(!payload.name||!/^[0-9+\-() ]{7,20}$/.test(payload.phone)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)){showMsg('請填寫姓名、有效手機與 Email。');return;}
   $('toStep5').disabled=true;
   try {
