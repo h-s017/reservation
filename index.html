@@ -10,7 +10,7 @@
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Noto Serif TC','Source Han Serif TC','Source Han Serif','思源宋體','Songti TC',serif!important}
 body{color:#000;background:#fff;font-size:17px;line-height:1.85}
 .wrap{max-width:620px;margin:auto;padding:0 26px 42px}
-header{text-align:center;padding:52px 0 34px;border-bottom:1px solid #ddd;background:linear-gradient(rgba(255,255,255,.92),rgba(255,255,255,.98)),url('assets/reservation-bg.svg') center/cover no-repeat}
+header{text-align:center;padding:52px 0 34px;border-bottom:0;background:linear-gradient(rgba(255,255,255,.92),rgba(255,255,255,.98)),url('assets/reservation-bg.svg') center/cover no-repeat}
 .en{font-size:14px;letter-spacing:.3em;text-transform:uppercase}.brand{font-size:38px;letter-spacing:.13em;margin-top:10px}.tag{display:none}
 .links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;justify-content:center;margin-top:22px}.link{border:1px solid #000;color:#000;text-decoration:none;padding:8px 10px;font-size:13px;letter-spacing:.06em;display:inline-flex;align-items:center;justify-content:center;text-align:center;min-height:46px;white-space:nowrap;overflow:hidden}
 .steps{display:flex;justify-content:center;gap:4px;margin:32px 0 0}.step{width:58px;text-align:center;font-size:10px;letter-spacing:.06em}.num{display:inline-flex;align-items:center;justify-content:center;width:31px;height:31px;border:1px solid #ddd;border-radius:50%;font-size:17px;margin-bottom:6px}.step.active .num{border-color:#000}.step.done .num{background:#000;color:#fff;border-color:#000}.contest-flow .step[data-step="5"]{display:none}
@@ -108,7 +108,7 @@ footer.footer .footer-legal{margin:0!important;padding:0!important;border:0!impo
 </head>
 <body>
 <div class="wrap">
-<header><div class="en">Course Registration</div><div class="brand">HANA SCENT ARTIST</div><div class="tag"></div><div class="links"><a class="link" href="https://www.hanascent.com/" target="_blank">官網</a><a class="link" href="https://www.instagram.com/hanas.scent/" target="_blank">IG</a><a class="link" href="https://line.me/R/ti/p/@199ywnfo" target="_blank">LINE</a><a class="link" id="myOrders" href="?orders=1">我的報名</a></div></header>
+<header><div class="en">Course Registration</div><div class="brand">HANA SCENT ARTIST</div><div class="tag"></div><div class="links"><a class="link" href="https://www.hanascent.com/" target="_blank">官網</a><a class="link" href="https://line.me/R/ti/p/@199ywnfo" target="_blank">LINE</a><a class="link" id="myOrders" href="?orders=1">我的報名</a></div></header>
 <nav class="steps"><div class="step active" data-step="1"><div class="num">01</div><div class="step-label">系列</div></div><div class="step" data-step="2"><div class="num">02</div><div class="step-label">課程</div></div><div class="step" data-step="3"><div class="num">03</div><div class="step-label">日期</div></div><div class="step" data-step="4"><div class="num">04</div><div class="step-label">資料</div></div><div class="step" data-step="5"><div class="num">05</div><div class="step-label">確認</div></div></nav>
 <section id="step1" class="show"><div class="eyebrow">Step 01</div><h2>選擇課程系列</h2><p class="note">請先選擇欲報名的課程系列。</p><div class="notice">所有付費課程皆可選擇報名人數；雙人課程以組數計算，每組 2 位。可預約數量依場次剩餘名額為準。</div><div class="list" id="seriesMenu"></div></section>
 <section id="step2"><div class="eyebrow">Step 02</div><h2>選擇課程方案</h2><div class="summary show" id="seriesSummary"></div><div class="list" id="courseMenu"></div><div class="row"><button class="btn ghost" data-back="1">上一步</button></div></section>
