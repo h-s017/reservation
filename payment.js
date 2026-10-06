@@ -90,7 +90,26 @@ function finishContest(order) {
   $('doneTitle').textContent='預約資料已送出';$('doneId').textContent=order.id;
   $('doneBody').textContent='HANA 已收到您的預約通知。請加入官方 LINE，傳送報名編號與預約資訊；收到教室回覆「預約完成」後，才算完成合作教室預約。';show('Done');
 }
+function savedPaymentSession(){
+  try{const session=JSON.parse(sessionStorage.getItem(paymentStorageKey)||'null');return session&&/^[a-f0-9]{64}$/.test(session.token)?session:null;}catch(_){return null;}
+}
+function openOrderLookup(){
+  clearTimeout(paymentPoll);paymentSession=savedPaymentSession();
+  $('lookupMessage').textContent=paymentSession?'可使用此分頁保留的訂單紀錄查詢最新狀態。':'此分頁沒有可查詢的訂單紀錄。請回到原報名分頁，或聯繫官方 LINE 協助查詢。';
+  $('lookupOrder').hidden=!paymentSession;$('lookupOrder').disabled=false;
+  show('Orders');
+}
+$('myOrders').onclick=e=>{e.preventDefault();openOrderLookup();};
+$('lookupBack').onclick=()=>{clearTimeout(paymentPoll);show(1);};
+$('lookupOrder').onclick=async()=>{
+  paymentSession=savedPaymentSession();if(!paymentSession){openOrderLookup();return;}
+  $('lookupOrder').disabled=true;$('lookupMessage').textContent='正在查詢訂單…';
+  try{const {order}=await paymentAPI('/orders/status',{id:paymentSession.id});if(order.status==='LINE_CONFIRMATION')finishContest(order);else renderPaymentResult(order);}
+  catch(e){$('lookupMessage').textContent=e.message;}
+  finally{$('lookupOrder').disabled=false;}
+};
 async function restorePayment() {
+  if(new URLSearchParams(location.search).has('orders')){openOrderLookup();return;}
   try{paymentSession=JSON.parse(sessionStorage.getItem(paymentStorageKey)||'null');}catch(_){paymentSession=null;}
   if(!paymentSession){
     if(new URLSearchParams(location.search).has('payment')){$('doneTitle').textContent='確認付款狀態';$('paymentCheck').style.display='none';$('doneBody').textContent='此瀏覽器沒有原訂單資訊。請使用原報名分頁，或透過官方 LINE 提供訂單編號查詢；請勿重複付款。';show('Done');}
