@@ -120,3 +120,9 @@ ATM 取號、入帳通知、逾期查詢及名額釋放已分別以測試商店�
 使用者確認保留 Squarespace DNS 與 GitHub Pages。index.html 的 PAYMENT_API 改為 https://hana-course-production.hana-reservation-payment.workers.dev；Worker 的 SITE_ORIGIN 維持 https://reservation.hanascent.com，PUBLIC_ORIGIN 改為正式 Worker 網址。正式 Worker 首頁導回預約網站，管理頁使用 Worker 的 /admin.html。
 預定 NotifyURL、ReturnURL、CustomerURL 分別為正式 Worker 網址加 /payment/notify、/payment/return、/payment/account，後端自動帶入；取代前述預約網域上的 callback 設定。不變更 DNS、課程價格與舊資料。Worker 資產建置將 PAYMENT_API 清空，讓測試站持續使用自己的 API，不誤連正式訂單。
 四個正式 Secrets 名稱已確認存在；使用者表示金鑰已重設。正式值與收款能力仍需真實交易驗收。這次公開部署被自動核准審查攔下，尚未執行；須取得正式 Worker 公開部署與 GitHub Pages 發布授權後才執行。三期與 LINE Pay 仍關閉。
+
+## 2026-10-06：已授權正式發布與最新場次整合
+使用者已明確授權公開部署正式 Worker 並合併 PR 發布 GitHub Pages。正式 Worker 已公開，四個 Secrets 已存在；不修改 Squarespace DNS。上述「待授權」記錄為歷史狀態。
+合併主分支最新禁約日期、10/6 指定系列、11/15 Vol.1、11/16 Vol.2 限定課程、各一個人工保留名額，以及 11 月起週三正常時段。0005_availability.sql 增量更新場次，不改動課程價格或任何既有訂單；如既有訂單連結的場次時間需要變更會中止。22 項後端測試及 390/1280px 瀏覽器流程驗證通過。
+正式入口為 https://reservation.hanascent.com；API 與管理頁位於 https://hana-course-production.hana-reservation-payment.workers.dev（管理頁 /admin.html）。NotifyURL /payment/notify、ReturnURL /payment/return、CustomerURL /payment/account 均使用此 Worker 網址，由後端帶入。ATM 當日 23:59:59 截止。三期与 LINE Pay 尚未啟用；僅能在商店開通並驗收後啟用。
+正式收款仍需使用者以原價進行一筆真實付款，核對 PAID、訂單編號及名額只扣一次；本次發布不代表正式金鑰或每種支付方式已通過交易驗收。舊 Google Sheet 保留，新訂單使用 D1，原 GAS 通知信不會自動沿用。

@@ -35,7 +35,7 @@ const server=http.createServer((req,res)=>{
       await page.goto(base);
       await page.getByRole('button',{name:/心村限定/}).click();
       await page.getByRole('button',{name:/單人調香探索課 10ML/}).click();
-      await page.locator('#nextM').click();
+
       await page.locator('[data-date="2026-10-01"]').click();
       await page.locator('[data-slot]').first().click();
       await page.locator('#toStep4').click();

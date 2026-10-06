@@ -4,7 +4,7 @@ test('D1 catalogue preserves every website price and extra blocked dates',()=>{
   const db=database(true),html=readFileSync(new URL('../../index.html',import.meta.url),'utf8');
   const courses=vm.runInNewContext(html.match(/const C=([\s\S]*?);\s*let S=/)[0].replace(/;\s*let S=$/,'; C.COURSES'));
   for(const c of courses)assert.equal(db.sqlite.prepare('SELECT price FROM courses WHERE series=? AND course=? AND variant=?').get(c.series,c.course,c.variant||'').price,c.price);
-  assert.ok(db.sqlite.prepare("SELECT date FROM closed_dates WHERE date='2026-11-15'").get());
+  assert.ok(db.sqlite.prepare("SELECT date FROM closed_dates WHERE date='2026-11-22'").get());
 });
 test('same token creates one row and server price ignores user amount',async()=>{
   const db=fixture();const [a,b]=await Promise.all([createOrder(db,hash,{...data,amount:1}),createOrder(db,hash,data)]);assert.equal(a.id,b.id);assert.equal(a.amount,6500);assert.equal(db.sqlite.prepare('SELECT count(*) n FROM orders').get().n,1);assert.equal(db.sqlite.prepare('SELECT booked FROM slots WHERE id=?').get('s').booked,1);
