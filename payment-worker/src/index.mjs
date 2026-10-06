@@ -45,8 +45,8 @@ export default {
       const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
       const d=JSON.parse(raw),hash=await sha256(token);let order,payment;
       if(url.pathname==='/orders'||url.pathname==='/contest'){
-        const {slotIds,name,phone,email,line,note,website}=d;
-        order=await createOrder(env.DB,hash,{slotIds,name,phone,email,line,note,website},url.pathname==='/contest');
+        const {slotIds,name,phone,email,line,note,website,quantity}=d;
+        order=await createOrder(env.DB,hash,{slotIds,name,phone,email,line,note,website,quantity},url.pathname==='/contest');
       }else if(url.pathname==='/orders/status')order=await ownedOrder(env.DB,hash,d.id);
       else if(url.pathname==='/orders/cancel')order=await cancelOrder(env.DB,hash,d.id);
       else if(url.pathname==='/orders/checkout'){

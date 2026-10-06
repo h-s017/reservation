@@ -17,7 +17,7 @@ export const ownedOrder=(db,hash,orderId)=>getOrder(db,'access_hash=? AND (? IS 
 export function publicOrder(o){
   const {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at}=o;
   const a=o.attempt;const transfer=a?.account_no?{bankCode:a.bank_code,account:a.account_no,deadline:a.deadline,expired:a.deadline<=now()}:null;
-  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
+  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer,quantity:o.quantity,unit_price:o.unit_price,booking_unit:o.booking_unit,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
 }
 export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})){
   const rows=await sql(db,`SELECT s.id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
@@ -27,11 +27,13 @@ export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{t
 }
 export async function createOrder(db,hash,d,contest=false){
   try{return await ownedOrder(db,hash);}catch(e){if(e.message!=='NOT_FOUND')throw e;}
+  const quantity=d.quantity===undefined?1:d.quantity;
+  if(!Number.isInteger(quantity)||quantity<1||quantity>100||(contest&&quantity!==1))fail('BAD_REQUEST');
   const fields={};for(const key of ['name','phone','email','line','note'])fields[key]=typeof d[key]==='string'?d[key].trim():'';
   if(d.website||!fields.name||fields.name.length>50||!/^[0-9+\-() ]{7,20}$/.test(fields.phone)||fields.line.length>50||fields.note.length>800||
     (!contest&&!fields.email)||(fields.email&&(fields.email.length>100||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email))))fail('BAD_REQUEST');
   if(!Array.isArray(d.slotIds)||!d.slotIds.length||d.slotIds.length>12||new Set(d.slotIds).size!==d.slotIds.length||d.slotIds.some(s=>typeof s!=='string'||s.length>140))fail('BAD_REQUEST');
-  const rows=await sql(db,`SELECT s.*,c.course,c.variant,c.price,c.contest,c.required_slots,c.max_slots,c.enabled
+  const rows=await sql(db,`SELECT s.*,c.course,c.variant,c.price,c.unit,c.contest,c.required_slots,c.max_slots,c.enabled
     FROM slots s JOIN courses c ON c.id=s.course_id WHERE s.id IN (${d.slotIds.map(()=>'?').join(',')})`,...d.slotIds).all();
   const s=rows.results[0];
   if(!s||rows.results.length!==d.slotIds.length||rows.results.some(x=>x.course_id!==s.course_id)||s.required_slots!==d.slotIds.length||d.slotIds.length>s.max_slots)fail('BAD_REQUEST');
@@ -39,8 +41,8 @@ export async function createOrder(db,hash,d,contest=false){
   const orderId=id('HF'),timestamp=now();
   try{
     await db.batch([
-      sql(db,`INSERT INTO orders(id,access_hash,course_id,course,variant,amount,name,phone,email,line,note,status,created_at,hold_until)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,orderId,hash,s.course_id,s.course,s.variant,s.price,fields.name,fields.phone,fields.email,fields.line,fields.note,contest?'LINE_CONFIRMATION':'PENDING',timestamp,timestamp+1800),
+      sql(db,`INSERT INTO orders(id,access_hash,course_id,course,variant,amount,name,phone,email,line,note,status,created_at,hold_until,quantity,unit_price,booking_unit)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,orderId,hash,s.course_id,s.course,s.variant,s.price*quantity,fields.name,fields.phone,fields.email,fields.line,fields.note,contest?'LINE_CONFIRMATION':'PENDING',timestamp,timestamp+1800,quantity,s.price,s.unit),
       ...d.slotIds.map(slotId=>sql(db,'INSERT INTO order_slots(order_id,slot_id) VALUES(?,?)',orderId,slotId))
     ]);
   }catch(e){
@@ -120,7 +122,7 @@ export async function adminAction(db,path,d){
   }
   if(path==='/api/admin/orders'){
     const before=Number.isSafeInteger(d.before)?d.before:now()+1,beforeId=typeof d.beforeId==='string'?d.beforeId:'\uffff';
-    const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,
+    const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,quantity,unit_price,booking_unit,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,
       (SELECT group_concat(s.date||' '||s.time,' / ') FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=o.id) AS sessions
       FROM orders o WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 200`,before,before,beforeId).all();return {orders:rows.results};
   }
