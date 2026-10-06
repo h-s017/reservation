@@ -33,6 +33,10 @@ const server=http.createServer((req,res)=>{
       });
       await page.route('https://ccore.newebpay.com/**',r=>r.fulfill({contentType:'text/html',body:'<h1>Mock NewebPay</h1>'}));
       await page.goto(base);
+      await page.locator('#myOrders').click();await page.getByRole('heading',{name:'我的報名／訂單查詢',exact:true}).waitFor();
+      assert.equal(await page.locator('#lookupOrder').isVisible(),false);
+      assert.match(await page.locator('#lookupMessage').innerText(),/沒有可查詢/);assert.equal(creates,0);
+      await page.locator('#lookupBack').click();
       await page.getByRole('button',{name:/心村限定/}).click();
       await page.getByRole('button',{name:/單人調香探索課 10ML/}).click();
 
@@ -65,6 +69,8 @@ const server=http.createServer((req,res)=>{
       order.cancellation_status='REFUND_PENDING';await page.goto(base+'/?payment=return');await page.getByRole('heading',{name:'取消申請處理中',exact:true}).waitFor();
       assert.equal(await page.locator('#retryPayment').isVisible(),false);
       order.cancellation_status='REFUNDED';await page.locator('#checkPayment').click();await page.getByRole('heading',{name:'報名已取消',exact:true}).waitFor();
+      await page.goto(base+'/?orders=1');await page.locator('#lookupOrder').click();await page.getByRole('heading',{name:'報名已取消',exact:true}).waitFor();
+      assert.equal(creates,1);assert.equal(checkoutCalls,2);
       assert.equal(await page.locator('#paymentCheck').isVisible(),false);assert.equal(await page.locator('#retryPayment').isVisible(),false);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);
       console.log(`PASS ${width}px: registration, payment, ATM, paid, refund pending and cancelled; no JS errors or horizontal overflow`);
