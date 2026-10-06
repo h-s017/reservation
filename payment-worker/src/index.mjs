@@ -55,7 +55,7 @@ export default {
       }else return reply({ok:false},404);
       return reply({ok:true,order:publicOrder(order),payment});
     }catch(err){
-      const codes=['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE','CONFIGURATION','CAPACITY_CONFLICT','PAYMENT_ATTEMPTS_EXHAUSTED'];
+      const codes=['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE','CONFIGURATION','CAPACITY_CONFLICT','PAYMENT_ATTEMPTS_EXHAUSTED','REFUND_STATE_CONFLICT'];
       const error=codes.includes(err.message)?err.message:'SERVICE_UNAVAILABLE';return reply({ok:false,error},['SERVICE_UNAVAILABLE','CONFIGURATION'].includes(error)?503:409);
     }
   }

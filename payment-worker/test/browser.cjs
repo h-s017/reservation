@@ -62,7 +62,12 @@ const server=http.createServer((req,res)=>{
       assert.equal(await page.locator('#paymentCheck').isVisible(),true);assert.match(await page.locator('#doneBody').innerText(),/您的報名與場次已確認/);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);
       if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`paid-${width}.png`),fullPage:true});
-      console.log(`PASS ${width}px: registration, confirmation, gateway, pending, failed, retry, ATM issued/expired, paid; no JS errors or horizontal overflow`);
+      order.cancellation_status='REFUND_PENDING';await page.goto(base+'/?payment=return');await page.getByRole('heading',{name:'取消申請處理中',exact:true}).waitFor();
+      assert.equal(await page.locator('#retryPayment').isVisible(),false);
+      order.cancellation_status='REFUNDED';await page.locator('#checkPayment').click();await page.getByRole('heading',{name:'報名已取消',exact:true}).waitFor();
+      assert.equal(await page.locator('#paymentCheck').isVisible(),false);assert.equal(await page.locator('#retryPayment').isVisible(),false);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);
+      console.log(`PASS ${width}px: registration, payment, ATM, paid, refund pending and cancelled; no JS errors or horizontal overflow`);
       await context.close();
     }
   }finally{await browser.close();server.close();}

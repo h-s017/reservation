@@ -17,7 +17,7 @@ export const ownedOrder=(db,hash,orderId)=>getOrder(db,'access_hash=? AND (? IS 
 export function publicOrder(o){
   const {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at}=o;
   const a=o.attempt;const transfer=a?.account_no?{bankCode:a.bank_code,account:a.account_no,deadline:a.deadline,expired:a.deadline<=now()}:null;
-  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer};
+  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
 }
 export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})){
   const rows=await sql(db,`SELECT s.id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
@@ -101,9 +101,26 @@ export async function expireDrafts(db){
     AND NOT EXISTS(SELECT 1 FROM payment_attempts WHERE order_id=orders.id AND status IN ('PENDING','PAID'))`,now()).run();
 }
 export async function adminAction(db,path,d){
+  if(['/api/admin/refund-request','/api/admin/refund-confirm'].includes(path)){
+    if(typeof d.id!=='string')fail('BAD_REQUEST');
+    const o=await sql(db,'SELECT * FROM orders WHERE id=?',d.id).first();if(!o)fail('NOT_FOUND');
+    if(o.status!=='PAID')fail('REFUND_STATE_CONFLICT');
+    if(path.endsWith('refund-request')){
+      const reason=typeof d.reason==='string'?d.reason.trim():'';
+      if(!reason||reason.length>500)fail('BAD_REQUEST');
+      await sql(db,"UPDATE orders SET cancellation_status='REFUND_PENDING',cancellation_reason=?,refund_requested_at=? WHERE id=? AND cancellation_status='NONE'",reason,now(),o.id).run();
+    }else{
+      const reference=typeof d.reference==='string'?d.reference.trim():'';
+      if(!reference||reference.length>200||d.confirmed!==true||d.amount!==o.amount)fail('BAD_REQUEST');
+      if(o.cancellation_status==='NONE')fail('REFUND_STATE_CONFLICT');
+      if(o.cancellation_status==='REFUNDED'&&o.refund_reference!==reference)fail('REFUND_STATE_CONFLICT');
+      await sql(db,"UPDATE orders SET cancellation_status='REFUNDED',refund_reference=?,refunded_at=? WHERE id=? AND cancellation_status='REFUND_PENDING'",reference,now(),o.id).run();
+    }
+    return {order:publicOrder(await getOrder(db,'id=?',o.id))};
+  }
   if(path==='/api/admin/orders'){
     const before=Number.isSafeInteger(d.before)?d.before:now()+1,beforeId=typeof d.beforeId==='string'?d.beforeId:'\uffff';
-    const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,
+    const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,
       (SELECT group_concat(s.date||' '||s.time,' / ') FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=o.id) AS sessions
       FROM orders o WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 200`,before,before,beforeId).all();return {orders:rows.results};
   }
