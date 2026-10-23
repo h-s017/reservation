@@ -29,8 +29,11 @@ export default {
       if(url.pathname.startsWith('/admin'))h.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
       return new Response(asset.body,{status:asset.status,headers:h});
     }
-    const admin=url.pathname.startsWith('/api/admin/'),allowedOrigin=admin?url.origin:env.SITE_ORIGIN;
-    if(request.headers.get('Origin')!==allowedOrigin)return reply({ok:false},403);
+    const admin=url.pathname.startsWith('/api/admin/');
+    const origin=request.headers.get('Origin');
+    const origins=admin?[url.origin,env.HANA_WORKSPACE_ORIGIN]:[env.SITE_ORIGIN];
+    if(!origin||!origins.includes(origin))return reply({ok:false},403);
+    const allowedOrigin=origin;
     headers['Access-Control-Allow-Origin']=allowedOrigin;headers.Vary='Origin';
     if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...headers,'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}});
     if(request.method!=='POST')return reply({ok:false},405);
@@ -55,7 +58,7 @@ export default {
       }else return reply({ok:false},404);
       return reply({ok:true,order:publicOrder(order),payment});
     }catch(err){
-      const codes=['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE','CONFIGURATION','CAPACITY_CONFLICT','PAYMENT_ATTEMPTS_EXHAUSTED','REFUND_STATE_CONFLICT'];
+      const codes=['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE','CONFIGURATION','CAPACITY_CONFLICT','PAYMENT_ATTEMPTS_EXHAUSTED','REFUND_STATE_CONFLICT','BUSY_CONFLICT'];
       const error=codes.includes(err.message)?err.message:'SERVICE_UNAVAILABLE';return reply({ok:false,error},['SERVICE_UNAVAILABLE','CONFIGURATION'].includes(error)?503:409);
     }
   }
