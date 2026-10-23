@@ -120,7 +120,10 @@ export async function syncCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=serviceA
   }
   const allowed=new Set(['CALENDAR_INVALID_CREDENTIALS','CALENDAR_TOKEN_FAILED','CALENDAR_EVENTS_FAILED','CALENDAR_INVALID_RESPONSE','CALENDAR_TOO_MANY_EVENTS','CALENDAR_PAGINATION_LIMIT','CALENDAR_INVALID_TIMEZONE','CALENDAR_INVALID_TIME','CALENDAR_INVALID_DATE','CALENDAR_INVALID_ID','CALENDAR_INVALID_RANGE','CALENDAR_INVALID_BUFFER','CALENDAR_DUPLICATE_EVENT','CALENDAR_HORIZON_TOO_LONG']);
   const code=allowed.has(error.message)?error.message:'CALENDAR_SYNC_FAILED';
-  try{await sql(db,"INSERT INTO calendar_sync_state(id,status,last_attempt_at,last_success_at,event_count,error_code) VALUES('google','ERROR',?,NULL,0,?) ON CONFLICT(id) DO UPDATE SET status='ERROR',last_attempt_at=excluded.last_attempt_at,error_code=excluded.error_code",Math.floor(nowMs/1000),code).run();}catch(_){}
+  try{
+   const stored=await sql(db,"INSERT INTO calendar_sync_state(id,status,last_attempt_at,last_success_at,event_count,error_code,fetch_started_ms) VALUES('google','ERROR',?,NULL,0,?,?) ON CONFLICT(id) DO UPDATE SET status='ERROR',last_attempt_at=excluded.last_attempt_at,error_code=excluded.error_code,fetch_started_ms=excluded.fetch_started_ms WHERE calendar_sync_state.fetch_started_ms<excluded.fetch_started_ms",Math.floor(nowMs/1000),code,nowMs).run();
+   if(stored.meta?.changes===0)return {configured:true,status:'SKIPPED',reason:'NEWER_SYNC_ALREADY_RECORDED'};
+  }catch(_){}
   return {configured:true,status:'ERROR',error_code:code};
  }
 }
