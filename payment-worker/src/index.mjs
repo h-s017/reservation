@@ -1,8 +1,9 @@
 import {saveAccount,reconcileExpired} from './atm.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
+import {syncCalendar,calendarStatus} from './google-calendar-sync.mjs';
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env)]));},
+  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env),syncCalendar(env)]));},
   async fetch(request,env){
     const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
     const reply=(data,status=200)=>Response.json(data,{status,headers});
@@ -42,7 +43,10 @@ export default {
       if(admin){
         if(!env.ADMIN_TOKEN||env.ADMIN_TOKEN.length<32||!equal(token,env.ADMIN_TOKEN))return reply({ok:false,error:'UNAUTHORIZED'},401);
         const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
-        return reply({ok:true,...await adminAction(env.DB,url.pathname,JSON.parse(raw))});
+        const command=JSON.parse(raw);
+        if(url.pathname==='/api/admin/calendar-status')return reply({ok:true,...await calendarStatus(env.DB,env)});
+        if(url.pathname==='/api/admin/calendar-sync')return reply({ok:true,...await syncCalendar(env)});
+        return reply({ok:true,...await adminAction(env.DB,url.pathname,command)});
       }
       if(!/^[a-f0-9]{64}$/.test(token))return reply({ok:false},401);
       const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
