@@ -12,6 +12,8 @@ NEWEBPAY_ATM_ENABLED = "true"
 NEWEBPAY_INSTALLMENTS = "0"
 NEWEBPAY_LINEPAY_ENABLED = "false"
 SITE_ORIGIN = "https://reservation.hanascent.com"
+# Backoffice is a module within HANA WORKSPACE GitHub Pages (admin bearer auth still required).
+HANA_WORKSPACE_ORIGIN = "https://h-s017.github.io"
 # Replace with the deployed HTTPS Worker origin, without a trailing slash.
 PUBLIC_ORIGIN = "https://hana-course-production.hana-reservation-payment.workers.dev"
 # Secrets (wrangler secret put): NEWEBPAY_MERCHANT_ID, NEWEBPAY_HASH_KEY,
