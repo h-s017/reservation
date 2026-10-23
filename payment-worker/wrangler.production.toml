@@ -17,6 +17,9 @@ HANA_WORKSPACE_ORIGIN = "https://h-s017.github.io"
 # Optional schedule buffers; only a dedicated calendar is synchronized.
 GCAL_BUFFER_BEFORE_MINUTES = "0"
 GCAL_BUFFER_AFTER_MINUTES = "0"
+# Notifications are opt-in. No messages sent until recipient and provider credentials are authorized.
+NOTIFICATIONS_ENABLED = "false"
+# Private Worker secrets are documented in docs/NOTIFICATIONS_SETUP.md
 # Cloudflare secrets: GCAL_SERVICE_ACCOUNT_JSON and GCAL_BUSY_CALENDAR_ID
 # Replace with the deployed HTTPS Worker origin, without a trailing slash.
 PUBLIC_ORIGIN = "https://hana-course-production.hana-reservation-payment.workers.dev"
