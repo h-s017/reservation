@@ -74,3 +74,26 @@ test('Imported calendar events are busy unless explicitly marked free or working
  const events=normalizeEvents([make('flight','fromGmail'),make('birthday','birthday'),make('free','default','transparent'),make('location','workingLocation')]);
  assert.deepEqual(events.map(x=>x.id),['flight','birthday']);
 });
+
+test('older concurrent Calendar response cannot undo newer busy periods',async()=>{
+ const db=fixture(),slot=db.sqlite.prepare("SELECT starts_at FROM slots WHERE id='s'").get();
+ const startMs=(slot.starts_at-86400)*1000;
+ const current={window:{from:slot.starts_at-86400,to:slot.starts_at+86400},events:[{id:'protected',start:slot.starts_at,end:slot.starts_at+3600}]};
+ await applyCalendarSnapshot(db,'calendar@example.com',current,{nowMs:startMs+5000});
+ const old={...current,events:[]};
+ await assert.rejects(applyCalendarSnapshot(db,'calendar@example.com',old,{nowMs:startMs}),/CALENDAR_STALE_SNAPSHOT/);
+ assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM busy_intervals WHERE active=1 AND source='google'").get().n,1);
+ assert.equal((await calendarStatus(db,{GCAL_SERVICE_ACCOUNT_JSON:'configured',GCAL_BUSY_CALENDAR_ID:'calendar@example.com'})).status,'OK');
+});
+test('out-of-order scheduled synchronizer exits SKIPPED without changing newer success to ERROR',async()=>{
+ const db=fixture(),slot=db.sqlite.prepare("SELECT starts_at FROM slots WHERE id='s'").get();
+ const oldStart=(slot.starts_at-86400)*1000;
+ const latest={window:{from:slot.starts_at-86400,to:slot.starts_at+86400},events:[{id:'still-busy',start:slot.starts_at,end:slot.starts_at+3600}]};
+ await applyCalendarSnapshot(db,'calendar@example.com',latest,{nowMs:oldStart+3000});
+ const env={GCAL_SERVICE_ACCOUNT_JSON:'configured',GCAL_BUSY_CALENDAR_ID:'calendar@example.com'};
+ const result=await syncCalendar(env,{db,nowMs:oldStart,tokenFn:async()=> 'mock-token',fetchFn:async()=>({ok:true,json:async()=>({items:[]})})});
+ assert.equal(result.status,'SKIPPED');
+ const state=await calendarStatus(db,env);
+ assert.equal(state.status,'OK');
+ assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM busy_intervals WHERE active=1 AND source='google'").get().n,1);
+});
