@@ -2,9 +2,9 @@ import {saveAccount,reconcileExpired} from './atm.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 import {syncCalendar,calendarStatus,calendarConflicts} from './google-calendar-sync.mjs';
-import {notificationStatus,dispatchNotifications} from './notifications.mjs';
+import {notificationStatus,processNotifications} from './notifications.mjs';
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env),syncCalendar(env),dispatchNotifications(env)]));},
+  async scheduled(event,env,ctx){ctx.waitUntil(Promise.allSettled([expireDrafts(env.DB),reconcileExpired(env),syncCalendar(env),processNotifications(env)]));},
   async fetch(request,env,ctx){
     const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
     const reply=(data,status=200)=>Response.json(data,{status,headers});
@@ -15,8 +15,8 @@ export default {
     }
     if(['/payment/notify','/payment/account'].includes(url.pathname)&&request.method==='POST'){
       let stage='PARSE';
-      try{const raw=await request.text();if(raw.length>40000)return reply({ok:false},413);const type=request.headers.get('Content-Type')||'';const form=type.toLowerCase().startsWith('multipart/form-data')?await new Response(raw,{headers:{'Content-Type':type}}).formData():new URLSearchParams(raw);if(url.pathname==='/payment/account'){stage='ACCOUNT';await saveAccount(env.DB,await verifyAccount(form,env));return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});}stage='VERIFY';const notification=await verifyNotification(form,env);stage='UPDATE';await notifyOrder(env.DB,notification);if(ctx?.waitUntil)ctx.waitUntil(dispatchNotifications(env).catch(()=>{}));return new Response('SUCCESS',{headers});}
-      catch(error){const code=['CONFIGURATION','INVALID_NOTIFICATION','NOT_FOUND','AMOUNT_MISMATCH','PAYMENT_PENDING','TRADE_CONFLICT'].includes(error.message)||/^ACCOUNT_(MPG[0-9]{5}|PROVIDER_FAILED|METHOD|BANK|NUMBER|EXPIRY_FORMAT|EXPIRY_DATE|DEADLINE_MISMATCH)$/.test(error.message)?error.message:'PROCESSING_ERROR';try{await env.DB.prepare('INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)').bind('NOTIFY_REJECTED',stage+':'+code+':'+(['Error','TypeError','SyntaxError','OperationError'].includes(error.name)?error.name:'OTHER'),Math.floor(Date.now()/1000)).run();}catch(_){}return reply({ok:false,error:'NOTIFICATION_NOT_ACCEPTED'},503);}
+      try{const raw=await request.text();if(raw.length>40000)return reply({ok:false},413);const type=request.headers.get('Content-Type')||'';const form=type.toLowerCase().startsWith('multipart/form-data')?await new Response(raw,{headers:{'Content-Type':type}}).formData():new URLSearchParams(raw);if(url.pathname==='/payment/account'){stage='ACCOUNT';await saveAccount(env.DB,await verifyAccount(form,env));return new Response(null,{status:303,headers:{...headers,Location:env.SITE_ORIGIN+'/?payment=return'}});}stage='VERIFY';const notification=await verifyNotification(form,env);stage='UPDATE';await notifyOrder(env.DB,notification);if(ctx?.waitUntil&&env.NOTIFICATIONS_ENABLED==='true')ctx.waitUntil(processNotifications(env).catch(()=>{}));return new Response('SUCCESS',{headers});}
+      catch(error){const code=['CONFIGURATION','INVALID_NOTIFICATION','NOT_FOUND','AMOUNT_MISMATCH','PAYMENT_PENDING','TRADE_CONFLICT'].includes(error.message)||/^ACCOUNT_(MPG[0-9]{5}|PROVIDER_FAILED|METHOD|BANK|NUMBER|EXPIRY_FORMAT|EXPIRY_DATE|DEADLINE_MISMATCH)$/.test(error.message)?error.message:'PROCESSING_ERROR';try{await env.DB.prepare('INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)').bind('NOTIFY_REJECTED',stage+':'+code+':'+(['Error','TypeError','SyntaxError','OperationError'].includes(error.name)?error.name:'OTHER'),Math.floor(Date.now()/1000)).run();}catch(_){}if(ctx?.waitUntil&&env.NOTIFICATIONS_ENABLED==='true')ctx.waitUntil(processNotifications(env).catch(()=>{}));return reply({ok:false,error:'NOTIFICATION_NOT_ACCEPTED'},503);}
     }
     if(url.pathname==='/api/slots'&&request.method==='GET'){
       if(request.headers.get('Origin')===env.SITE_ORIGIN)headers['Access-Control-Allow-Origin']=env.SITE_ORIGIN;
@@ -49,8 +49,8 @@ export default {
         if(url.pathname==='/api/admin/calendar-sync')return reply({ok:true,...await syncCalendar(env)});
         if(url.pathname==='/api/admin/calendar-conflicts')return reply({ok:true,...await calendarConflicts(env.DB)});
         if(url.pathname==='/api/admin/notifications')return reply({ok:true,...await notificationStatus(env.DB,env)});
-        if(url.pathname==='/api/admin/notifications-dispatch')return reply({ok:true,...await dispatchNotifications(env)});
-        return reply({ok:true,...await adminAction(env.DB,url.pathname,command)});
+        if(url.pathname==='/api/admin/notifications-dispatch')return reply({ok:true,...await processNotifications(env)});
+        const result=await adminAction(env.DB,url.pathname,command);if(ctx?.waitUntil&&env.NOTIFICATIONS_ENABLED==='true')ctx.waitUntil(processNotifications(env).catch(()=>{}));return reply({ok:true,...result});
       }
       if(!/^[a-f0-9]{64}$/.test(token))return reply({ok:false},401);
       const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
@@ -64,7 +64,7 @@ export default {
         if(!env.NEWEBPAY_MERCHANT_ID||new TextEncoder().encode(env.NEWEBPAY_HASH_KEY||'').length!==32||new TextEncoder().encode(env.NEWEBPAY_HASH_IV||'').length!==16||!['test','production'].includes(env.NEWEBPAY_ENV)||!/^https:\/\//.test(env.PUBLIC_ORIGIN||''))throw new Error('CONFIGURATION');
         order=await startCheckout(env.DB,hash,d.id);if(order.status==='PENDING'&&!order.attempt.account_no)payment=await checkout(order,env);
       }else return reply({ok:false},404);
-      return reply({ok:true,order:publicOrder(order),payment});
+      if(ctx?.waitUntil&&env.NOTIFICATIONS_ENABLED==='true')ctx.waitUntil(processNotifications(env).catch(()=>{}));return reply({ok:true,order:publicOrder(order),payment});
     }catch(err){
       const codes=['BAD_REQUEST','SLOT_FULL','NOT_FOUND','PAYMENT_PENDING','COURSE_UNAVAILABLE','CONFIGURATION','CAPACITY_CONFLICT','PAYMENT_ATTEMPTS_EXHAUSTED','REFUND_STATE_CONFLICT','BUSY_CONFLICT'];
       const error=codes.includes(err.message)?err.message:'SERVICE_UNAVAILABLE';return reply({ok:false,error},['SERVICE_UNAVAILABLE','CONFIGURATION'].includes(error)?503:409);
