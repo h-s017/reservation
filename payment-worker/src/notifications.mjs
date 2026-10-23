@@ -6,7 +6,7 @@ export const notificationConfigured=e=>({line:Boolean(e.LINE_CHANNEL_ACCESS_TOKE
 async function digest(s){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))).map(x=>x.toString(16).padStart(2,'0')).join('');}
 export async function notificationStatus(db,env){
  const rows=(await q(db,'SELECT channel,status,count(*) AS total FROM notification_deliveries GROUP BY channel,status').all()).results;
- return {configured:notificationConfigured(env),counts:rows.map(x=>({channel:x.channel,status:x.status,total:x.total})),pending:rows.filter(x=>x.status!=='SENT').reduce((n,x)=>n+x.total,0)};
+ return {enabled:env.NOTIFICATIONS_ENABLED==='true',configured:notificationConfigured(env),counts:rows.map(x=>({channel:x.channel,status:x.status,total:x.total})),pending:rows.filter(x=>x.status!=='SENT').reduce((n,x)=>n+x.total,0)};
 }
 async function renderMessage(db,e){
  const title=labels[e.kind]||'預約事件';
@@ -41,7 +41,8 @@ async function send(channel,env,payload,eventKey,fetchFn){
 }
 const backoff=n=>Math.min(3600,60*2**Math.min(5,n-1));
 export async function processNotifications(env,{db=env.DB,fetchFn=fetch,limit=20,nowSeconds=now()}={}){
- const config=notificationConfigured(env),stats={sent:0,retry:0,failed:0,review:0,skipped:0};
+ const config=notificationConfigured(env),stats={enabled:env.NOTIFICATIONS_ENABLED==='true',sent:0,retry:0,failed:0,review:0,skipped:0};
+ if(!stats.enabled)return stats;
  const jobs=(await q(db,"SELECT d.event_key,d.channel,d.attempts,d.first_attempt_at,d.message_text,e.kind,e.order_id,e.detail FROM notification_deliveries d JOIN notification_events e ON e.event_key=d.event_key WHERE ((d.status IN ('PENDING','RETRY') AND d.next_attempt_at<=?) OR (d.status='SENDING' AND d.lease_until<?)) ORDER BY e.created_at,d.event_key,d.channel LIMIT ?",nowSeconds,nowSeconds,Math.min(50,Math.max(1,limit))).all()).results;
  for(const job of jobs){
   if(!config[job.channel]){stats.skipped++;continue;}
