@@ -46,3 +46,13 @@ test('Google Calendar API pagination expands event instances without exposing cr
  }});
  assert.equal(count,2);assert.equal(snap.events.length,2);
 });
+
+test('empty read-only Calendar does not fail and releases stale Google overlays only',async()=>{
+ const db=fixture(),slot=db.sqlite.prepare("SELECT * FROM slots WHERE id='s'").get();
+ const nowMs=slot.starts_at*1000,env={GCAL_SERVICE_ACCOUNT_JSON:'dummy',GCAL_BUSY_CALENDAR_ID:'bookable@example.com'};
+ await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,{window:{from:slot.starts_at-3600,to:slot.starts_at+86400},events:[{id:'old',start:slot.starts_at,end:slot.starts_at+3600}]},{nowMs:nowMs-10000});
+ const outcome=await syncCalendar(env,{db,nowMs,tokenFn:async()=> 'token',fetchFn:async()=>({ok:true,json:async()=>({})})});
+ assert.equal(outcome.status,'OK');
+ assert.equal((await calendarStatus(db,env)).event_count,0);
+ assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM busy_intervals WHERE active=1 AND source='google'").get().n,0);
+});
