@@ -20,7 +20,7 @@ test('new registration queues both channels transactionally and sends without cu
  const o=await createOrder(DB,'1'.repeat(64),input);
  assert.equal(count(DB,'BOOKING_NEW'),1);
  let rows=DB.sqlite.prepare('SELECT channel,status FROM notification_deliveries').all();
- assert.deepEqual(rows.map(x=>x.channel),['email','line']);
+ assert.deepEqual(rows.map(x=>x.channel).sort(),['email','line']);
  assert.equal((await notificationStatus(DB,e)).enabled,true);
  const output=await processNotifications(e,{fetchFn:mockSend});
  assert.equal(output.sent,2);
