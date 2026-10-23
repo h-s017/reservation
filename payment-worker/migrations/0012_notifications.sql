@@ -18,6 +18,7 @@ CREATE TABLE notification_deliveries (
  lease_until INTEGER,
  claim_id TEXT,
  provider_id TEXT,
+ message_text TEXT,
  last_error TEXT,
  sent_at INTEGER,
  PRIMARY KEY(event_key,channel)
