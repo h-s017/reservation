@@ -7,7 +7,7 @@ export const busyExistsSql=(alias='s')=>
   `EXISTS(SELECT 1 FROM busy_intervals bi WHERE bi.active=1 AND bi.starts_at < ${alias}.starts_at+${slotDurationSql(alias)} AND bi.ends_at>${alias}.starts_at)`;
 const overlaps='bi.starts_at < s.starts_at+'+slotDurationSql('s')+' AND bi.ends_at>s.starts_at';
 function instant(value){
-  if(typeof value!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\\.\d{1,3})?)?(?:Z|[+-]\d\d:\d\d)$/.test(value))throw Error('BAD_REQUEST');
+  if(typeof value!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d{1,3})?)?(?:Z|[+-]\d\d:\d\d)$/.test(value))throw Error('BAD_REQUEST');
   const time=Date.parse(value);
   if(!Number.isFinite(time))throw Error('BAD_REQUEST');
   return Math.floor(time/1000);
