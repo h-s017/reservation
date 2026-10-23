@@ -89,6 +89,11 @@ export async function applyCalendarSnapshot(db,calendar,snapshot,{nowMs=Date.now
  await db.batch(queries);
  return {status:'OK',last_success_at:stamp,event_count:snapshot.events.length};
 }
+export async function calendarConflicts(db){
+ const query="SELECT DISTINCT o.id AS order_id,o.status,s.date,s.time FROM busy_intervals b JOIN slots s ON b.active=1 AND b.source='google' AND b.starts_at < s.starts_at+((CAST(substr(s.time,7,2) AS INTEGER)*60+CAST(substr(s.time,10,2) AS INTEGER)-CAST(substr(s.time,1,2) AS INTEGER)*60-CAST(substr(s.time,4,2) AS INTEGER))*60) AND b.ends_at>s.starts_at JOIN order_slots os ON os.slot_id=s.id AND os.active=1 JOIN orders o ON o.id=os.order_id WHERE o.status IN ('PAID','PENDING','FAILED','LINE_CONFIRMATION') ORDER BY s.date,s.time LIMIT 100";
+ const rows=await sql(db,query).all();
+ return {conflicts:rows.results};
+}
 export async function calendarStatus(db,env){
  const row=await sql(db,"SELECT status,last_attempt_at,last_success_at,event_count,error_code FROM calendar_sync_state WHERE id='google'").first();
  return {configured:calendarConfigured(env),status:row?.status||'NOT_STARTED',last_attempt_at:row?.last_attempt_at||null,last_success_at:row?.last_success_at||null,event_count:row?.event_count||0,error_code:row?.error_code||null};
