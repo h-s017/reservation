@@ -56,3 +56,21 @@ test('empty read-only Calendar does not fail and releases stale Google overlays 
  assert.equal((await calendarStatus(db,env)).event_count,0);
  assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM busy_intervals WHERE active=1 AND source='google'").get().n,0);
 });
+
+test('Calendar sync covers slots more than 120 days ahead, never silently discarding future bookings',async()=>{
+ const db=fixture(); // Fixture future event is year 2099-12; mock time earlier in 2099.
+ const nowMs=Date.parse('2099-06-01T00:00:00+08:00');
+ const env={GCAL_SERVICE_ACCOUNT_JSON:'placeholder',GCAL_BUSY_CALENDAR_ID:'calendar@example.com'};
+ const requested=[];
+ const response=await syncCalendar(env,{db,nowMs,tokenFn:async()=> 'token',fetchFn:async(url)=>{
+  const u=new URL(url);requested.push(u.searchParams.get('timeMax'));
+  return {ok:true,json:async()=>({items:[]})};
+ }});
+ assert.equal(response.status,'OK');
+ assert.ok(Date.parse(requested[0])>Date.parse('2099-12-02T00:00:00+08:00'));
+});
+test('Imported calendar events are busy unless explicitly marked free or working-location',()=>{
+ const make=(id,eventType,transparency)=>({id,eventType,transparency,start:{dateTime:'2099-12-01T09:00:00+08:00'},end:{dateTime:'2099-12-01T11:00:00+08:00'}});
+ const events=normalizeEvents([make('flight','fromGmail'),make('birthday','birthday'),make('free','default','transparent'),make('location','workingLocation')]);
+ assert.deepEqual(events.map(x=>x.id),['flight','birthday']);
+});
