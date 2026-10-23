@@ -90,7 +90,9 @@ export async function applyCalendarSnapshot(db,calendar,snapshot,{nowMs=Date.now
   queries.push(sql(db,"INSERT INTO busy_intervals(id,source,title,starts_at,ends_at,active,updated_at,last_seen_sync) VALUES(?,'google','Google Calendar 忙碌',?,?,1,?,?) ON CONFLICT(id) DO UPDATE SET starts_at=excluded.starts_at,ends_at=excluded.ends_at,active=1,updated_at=excluded.updated_at,last_seen_sync=excluded.last_seen_sync WHERE busy_intervals.source='google'",id,e.start,e.end,stamp,syncId));
  }
  queries.push(sql(db,"UPDATE busy_intervals SET active=0,updated_at=? WHERE source='google' AND active=1 AND ends_at>? AND starts_at<? AND (last_seen_sync IS NULL OR last_seen_sync<>?)",stamp,snapshot.window.from,snapshot.window.to,syncId));
- queries.push(sql(db,"INSERT INTO calendar_sync_state(id,status,last_attempt_at,last_success_at,event_count,error_code) VALUES('google','OK',?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET status='OK',last_attempt_at=excluded.last_attempt_at,last_success_at=excluded.last_success_at,event_count=excluded.event_count,error_code=NULL",stamp,stamp,snapshot.events.length));
+ // The guard must run as the FIRST statement in this batch; a slower old API response
+ // may not reactivate deleted intervals or overwrite a more recent successful snapshot.
+ queries.unshift(sql(db,"INSERT INTO calendar_sync_state(id,status,last_attempt_at,last_success_at,event_count,error_code,fetch_started_ms) VALUES('google','OK',?,?,?,NULL,?) ON CONFLICT(id) DO UPDATE SET status='OK',last_attempt_at=excluded.last_attempt_at,last_success_at=excluded.last_success_at,event_count=excluded.event_count,error_code=NULL,fetch_started_ms=excluded.fetch_started_ms",stamp,stamp,snapshot.events.length,nowMs));
  queries.push(sql(db,"INSERT INTO admin_audit(action,target,created_at) VALUES('CALENDAR_SYNC','busy',?)",stamp));
  await db.batch(queries);
  return {status:'OK',last_success_at:stamp,event_count:snapshot.events.length};
@@ -112,6 +114,10 @@ export async function syncCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=serviceA
   const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:last?.latest??null});
   return {configured:true,...await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,snapshot,{nowMs})};
  }catch(error){
+  if(String(error?.message||'').includes('CALENDAR_STALE_SNAPSHOT')){
+   // A newer snapshot already committed. Do not mark its successful state as an error.
+   return {configured:true,status:'SKIPPED',reason:'NEWER_SNAPSHOT_ALREADY_APPLIED'};
+  }
   const allowed=new Set(['CALENDAR_INVALID_CREDENTIALS','CALENDAR_TOKEN_FAILED','CALENDAR_EVENTS_FAILED','CALENDAR_INVALID_RESPONSE','CALENDAR_TOO_MANY_EVENTS','CALENDAR_PAGINATION_LIMIT','CALENDAR_INVALID_TIMEZONE','CALENDAR_INVALID_TIME','CALENDAR_INVALID_DATE','CALENDAR_INVALID_ID','CALENDAR_INVALID_RANGE','CALENDAR_INVALID_BUFFER','CALENDAR_DUPLICATE_EVENT','CALENDAR_HORIZON_TOO_LONG']);
   const code=allowed.has(error.message)?error.message:'CALENDAR_SYNC_FAILED';
   try{await sql(db,"INSERT INTO calendar_sync_state(id,status,last_attempt_at,last_success_at,event_count,error_code) VALUES('google','ERROR',?,NULL,0,?) ON CONFLICT(id) DO UPDATE SET status='ERROR',last_attempt_at=excluded.last_attempt_at,error_code=excluded.error_code",Math.floor(nowMs/1000),code).run();}catch(_){}
