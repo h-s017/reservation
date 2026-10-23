@@ -97,3 +97,17 @@ test('out-of-order scheduled synchronizer exits SKIPPED without changing newer s
  assert.equal(state.status,'OK');
  assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM busy_intervals WHERE active=1 AND source='google'").get().n,1);
 });
+
+test('slow failing Calendar request never marks a newer successful snapshot as ERROR',async()=>{
+ const db=fixture(),slot=db.sqlite.prepare("SELECT starts_at FROM slots WHERE id='s'").get();
+ const started=(slot.starts_at-86400)*1000;
+ const env={GCAL_SERVICE_ACCOUNT_JSON:'configured',GCAL_BUSY_CALENDAR_ID:'calendar@example.com'};
+ const current={window:{from:slot.starts_at-86400,to:slot.starts_at+86400},events:[{id:'new-block',start:slot.starts_at,end:slot.starts_at+3600}]};
+ await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,current,{nowMs:started+5000});
+ const response=await syncCalendar(env,{db,nowMs:started,tokenFn:async()=>{throw Error('CALENDAR_TOKEN_FAILED')}});
+ assert.equal(response.status,'SKIPPED');
+ const state=await calendarStatus(db,env);
+ assert.equal(state.status,'OK');
+ assert.equal(state.error_code,null);
+ assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM busy_intervals WHERE source='google' AND active=1").get().n,1);
+});
