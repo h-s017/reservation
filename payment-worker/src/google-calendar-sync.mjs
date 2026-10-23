@@ -1,10 +1,15 @@
 // Google Calendar is a read-only source of busy intervals; no Google writes.
 // Keys live in Cloudflare secrets and no calendar titles are exposed publicly.
 const encoder=new TextEncoder();
-const busyWindow=(ms)=>{
+const busyWindow=(ms,horizonUntil=null)=>{
  const date=new Date(ms+28800000).toISOString().slice(0,10);
  const from=Math.floor(Date.parse(date+'T00:00:00+08:00')/1000);
- return {from,to:from+120*86400};
+ // At least 120 days, but always cover the actual last published booking slot.
+ // Leave two days of margin for all-day and time-buffer crossings.
+ const until=Number.isFinite(horizonUntil)?horizonUntil+2*86400:from;
+ const to=Math.max(from+120*86400,until);
+ if(to-from>370*86400)throw Error('CALENDAR_HORIZON_TOO_LONG');
+ return {from,to};
 };
 const b64url=(bytes)=>btoa(String.fromCharCode(...(typeof bytes==='string'?encoder.encode(bytes):new Uint8Array(bytes)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const dateTime=x=>{
@@ -24,10 +29,10 @@ const safeMinutes=x=>{
 };
 export function normalizeEvents(items,{before=0,after=0}={}){
  if(!Array.isArray(items))throw Error('CALENDAR_INVALID_RESPONSE');
- return items.filter(e=>e?.status!=='cancelled'&&e?.transparency!=='transparent'&&['default','outOfOffice','focusTime',undefined].includes(e?.eventType)).map(e=>{
+ return items.filter(e=>e?.status!=='cancelled'&&e?.transparency!=='transparent'&&e?.eventType!=='workingLocation').map(e=>{
   if(!e.id||typeof e.id!=='string'||e.id.length>1024)throw Error('CALENDAR_INVALID_ID');
   const start=dateTime(e.start)-before*60,end=dateTime(e.end)+after*60;
-  if(end<=start||end-start>120*86400+8*3600)throw Error('CALENDAR_INVALID_RANGE');
+  if(end<=start||end-start>370*86400+8*3600)throw Error('CALENDAR_INVALID_RANGE');
   return {id:e.id,start,end};
  });
 }
@@ -50,8 +55,8 @@ export async function serviceAccountAccessToken(env,{fetchFn=fetch,nowMs=Date.no
  if(typeof data.access_token!=='string'||!data.access_token)throw Error('CALENDAR_TOKEN_FAILED');
  return data.access_token;
 }
-export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAccountAccessToken,nowMs=Date.now()}={}){
- const window=busyWindow(nowMs),token=await tokenFn(env,{fetchFn,nowMs});
+export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAccountAccessToken,nowMs=Date.now(),horizonUntil=null}={}){
+ const window=busyWindow(nowMs,horizonUntil),token=await tokenFn(env,{fetchFn,nowMs});
  const items=[];let pageToken='',pages=0;
  do{
   const q=new URLSearchParams({singleEvents:'true',showDeleted:'false',orderBy:'startTime',timeZone:'Asia/Taipei',
@@ -102,10 +107,12 @@ export async function calendarStatus(db,env){
 export async function syncCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=serviceAccountAccessToken,nowMs=Date.now()}={}){
  if(!calendarConfigured(env))return {configured:false,status:'NOT_CONFIGURED'};
  try{
-  const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs});
+  // Source-of-truth booking horizon comes from D1, not from a fixed 120-day guess.
+  const last=await sql(db,'SELECT MAX(starts_at) AS latest FROM slots WHERE starts_at>=?',Math.floor(nowMs/1000)).first();
+  const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:last?.latest??null});
   return {configured:true,...await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,snapshot,{nowMs})};
  }catch(error){
-  const allowed=new Set(['CALENDAR_INVALID_CREDENTIALS','CALENDAR_TOKEN_FAILED','CALENDAR_EVENTS_FAILED','CALENDAR_INVALID_RESPONSE','CALENDAR_TOO_MANY_EVENTS','CALENDAR_PAGINATION_LIMIT','CALENDAR_INVALID_TIMEZONE','CALENDAR_INVALID_TIME','CALENDAR_INVALID_DATE','CALENDAR_INVALID_ID','CALENDAR_INVALID_RANGE','CALENDAR_INVALID_BUFFER','CALENDAR_DUPLICATE_EVENT']);
+  const allowed=new Set(['CALENDAR_INVALID_CREDENTIALS','CALENDAR_TOKEN_FAILED','CALENDAR_EVENTS_FAILED','CALENDAR_INVALID_RESPONSE','CALENDAR_TOO_MANY_EVENTS','CALENDAR_PAGINATION_LIMIT','CALENDAR_INVALID_TIMEZONE','CALENDAR_INVALID_TIME','CALENDAR_INVALID_DATE','CALENDAR_INVALID_ID','CALENDAR_INVALID_RANGE','CALENDAR_INVALID_BUFFER','CALENDAR_DUPLICATE_EVENT','CALENDAR_HORIZON_TOO_LONG']);
   const code=allowed.has(error.message)?error.message:'CALENDAR_SYNC_FAILED';
   try{await sql(db,"INSERT INTO calendar_sync_state(id,status,last_attempt_at,last_success_at,event_count,error_code) VALUES('google','ERROR',?,NULL,0,?) ON CONFLICT(id) DO UPDATE SET status='ERROR',last_attempt_at=excluded.last_attempt_at,error_code=excluded.error_code",Math.floor(nowMs/1000),code).run();}catch(_){}
   return {configured:true,status:'ERROR',error_code:code};
