@@ -62,8 +62,9 @@ export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAcco
   const response=await fetchFn(url,{headers:{Authorization:'Bearer '+token}});
   if(!response.ok)throw Error('CALENDAR_EVENTS_FAILED');
   const data=await response.json();
-  if(!Array.isArray(data.items))throw Error('CALENDAR_INVALID_RESPONSE');
-  items.push(...data.items);if(items.length>1000)throw Error('CALENDAR_TOO_MANY_EVENTS');
+  if(!data||typeof data!=='object'||(data.items!==undefined&&!Array.isArray(data.items)))throw Error('CALENDAR_INVALID_RESPONSE');
+  // Google partial responses may omit an empty items[] field entirely.
+  items.push(...(data.items||[]));if(items.length>1000)throw Error('CALENDAR_TOO_MANY_EVENTS');
   pageToken=typeof data.nextPageToken==='string'?data.nextPageToken:'';
   if(pageToken&&++pages>=10)throw Error('CALENDAR_PAGINATION_LIMIT');
  }while(pageToken);
