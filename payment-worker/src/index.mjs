@@ -2,9 +2,10 @@ import {saveAccount,reconcileExpired} from './atm.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 import {syncCalendar,calendarStatus,calendarConflicts} from './google-calendar-sync.mjs';
+import {notificationStatus,dispatchNotifications} from './notifications.mjs';
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env),syncCalendar(env)]));},
-  async fetch(request,env){
+  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env),syncCalendar(env),dispatchNotifications(env)]));},
+  async fetch(request,env,ctx){
     const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
     const reply=(data,status=200)=>Response.json(data,{status,headers});
     if(url.pathname==='/payment/return'&&['GET','POST'].includes(request.method)){
@@ -47,6 +48,8 @@ export default {
         if(url.pathname==='/api/admin/calendar-status')return reply({ok:true,...await calendarStatus(env.DB,env)});
         if(url.pathname==='/api/admin/calendar-sync')return reply({ok:true,...await syncCalendar(env)});
         if(url.pathname==='/api/admin/calendar-conflicts')return reply({ok:true,...await calendarConflicts(env.DB)});
+        if(url.pathname==='/api/admin/notifications')return reply({ok:true,...await notificationStatus(env.DB,env)});
+        if(url.pathname==='/api/admin/notifications-dispatch')return reply({ok:true,...await dispatchNotifications(env)});
         return reply({ok:true,...await adminAction(env.DB,url.pathname,command)});
       }
       if(!/^[a-f0-9]{64}$/.test(token))return reply({ok:false},401);
