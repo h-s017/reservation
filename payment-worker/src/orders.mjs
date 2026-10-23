@@ -1,3 +1,4 @@
+import {busyExistsSql,busyAdmin} from './availability.mjs';
 const now=()=>Math.floor(Date.now()/1000);
 export function atmDeadline(timestamp,startsAt){
   const end=(Math.floor((timestamp+28800)/86400)+1)*86400-28800-1;
@@ -19,9 +20,10 @@ export function publicOrder(o){
   const a=o.attempt;const transfer=a?.account_no?{bankCode:a.bank_code,account:a.account_no,deadline:a.deadline,expired:a.deadline<=now()}:null;
   return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer,quantity:o.quantity,unit_price:o.unit_price,booking_unit:o.booking_unit,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
 }
-export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})){
+export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),includePrivate=false){
   const rows=await sql(db,`SELECT s.id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
-    CASE WHEN s.status='CLOSED' OR c.enabled=0 OR d.date IS NOT NULL THEN '關閉' ELSE '開放' END AS status
+    ${includePrivate?`CASE WHEN ${busyExistsSql('s')} THEN 1 ELSE 0 END AS schedule_blocked,`:''}
+    CASE WHEN s.status='CLOSED' OR c.enabled=0 OR d.date IS NOT NULL OR ${busyExistsSql('s')} THEN '關閉' ELSE '開放' END AS status
     FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date WHERE s.date>=? ORDER BY s.date,s.time`,from).all();
   return rows.results;
 }
@@ -103,6 +105,7 @@ export async function expireDrafts(db){
     AND NOT EXISTS(SELECT 1 FROM payment_attempts WHERE order_id=orders.id AND status IN ('PENDING','PAID'))`,now()).run();
 }
 export async function adminAction(db,path,d){
+  if(path.startsWith('/api/admin/busy-'))return busyAdmin(db,path,d);
   if(['/api/admin/refund-request','/api/admin/refund-confirm'].includes(path)){
     if(typeof d.id!=='string')fail('BAD_REQUEST');
     const o=await sql(db,'SELECT * FROM orders WHERE id=?',d.id).first();if(!o)fail('NOT_FOUND');
@@ -126,7 +129,7 @@ export async function adminAction(db,path,d){
       (SELECT group_concat(s.date||' '||s.time,' / ') FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=o.id) AS sessions
       FROM orders o WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 200`,before,before,beforeId).all();return {orders:rows.results};
   }
-  if(path==='/api/admin/slots')return {slots:await listSlots(db,typeof d.from==='string'?d.from:'0000')};
+  if(path==='/api/admin/slots')return {slots:await listSlots(db,typeof d.from==='string'?d.from:'0000',true)};
   if(path==='/api/admin/slot'){
     if(typeof d.id!=='string'||!['OPEN','CLOSED'].includes(d.status)||!Number.isInteger(d.capacity)||d.capacity<1||d.capacity>100)fail('BAD_REQUEST');
     const result=await db.batch([
