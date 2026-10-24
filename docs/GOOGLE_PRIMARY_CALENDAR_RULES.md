@@ -36,3 +36,20 @@
 - 這是可測試的**規則式分類器**，不是能完美推斷所有活動性質的 LLM。若活動標題不清楚或沒有實際起訖時間，應留待確認而非擅自判斷。
 - 在系統未部署、金鑰未設定以前，網站不會自動因 Google Calendar 行程變更。
 - 預覽結果可在授權後台暫時顯示活動名稱供管理者核對，但事件標題不儲存在公開 GitHub 或 D1 的 Google 禁約表；D1 只儲存泛稱「Google Calendar 忙碌」及時間與雜湊事件 ID。
+
+
+## V2｜管理者修正自動判斷（已提交，尚未上線）
+- 在已授權的 HANA WORKSPACE Google 預覽中查看「待確認／預計自動封鎖／已設定不封鎖」三組行程。
+- 每個行程可使用 **封鎖／不封鎖／恢復自動**。這些只更改預約系統中該事件的判斷，不會更動原 Google Calendar 或已成立訂單。
+- 判斷儲存在 D1 migration `0013_calendar_event_decisions.sql` 的 `calendar_event_decisions`，鍵值為日曆 ID 與事件 ID 的 SHA-256 雜湊，僅記錄 BLOCK / IGNORE，不儲存活動名稱或參加者。
+- 系統讀取 Google Calendar 後先套用規則，再套用管理者的單一事件覆寫。取消、Google 標示「有空」及本人拒絕邀請是安全優先條件，即使舊覆寫是 BLOCK 也不強行封鎖。
+- 管理者覆寫後需要成功同步，新的封鎖決策才反映到網站；前端必須顯示同步失敗，不可虛報已成功套用。
+- 分享原行事曆給 service account 時，邀請者的回覆狀態需比對原行事曆擁有者 ID，而不是只依賴 Google API 返回的 `attendees.self`（可能屬於另一個授權身分）。
+- `calendar-preview` 及 `calendar-decision` 只允許管理者身分以 ADMIN_TOKEN 存取；公開課程列表不得包含活動標題或管理者決策。
+- 此 V2 是**人工可覆寫的規則引擎**，並非可任意閱讀私人資料或獨立決策的 LLM Agent；正式部署前仍需驗證原 Google Calendar 唯讀授權及 Cloudflare D1 資料庫遷移。
+
+### V2 測試範圍
+- 非公開日曆的課程提醒預設先 REVIEW，管理者 BLOCK 後才真正影響新預約；改回 IGNORE 或 RESET 可撤銷相應 Google 忙碌覆蓋層。
+- 無效的事件鍵值或未知決策不應改寫資料庫。
+- Calendar 活動的私人名稱、邀請者與電子信箱不能寫入公開程式碼或 D1 覆寫表。
+- 原行事曆擁有者未回覆、已接受、已拒絕邀請皆分別檢查；不能僅依服務帳號自己的 RSVP 判斷。
