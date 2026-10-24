@@ -113,7 +113,7 @@ async function resolveCalendarDecisions(db,calendar,snapshot,env){
  }
  const buffer={before:safeMinutes(env.GCAL_BUFFER_BEFORE_MINUTES),after:safeMinutes(env.GCAL_BUFFER_AFTER_MINUTES)};
  return {...snapshot,events:normalizeEvents(blocked,buffer),
-   review,blockedPreview,counts:{blocked:blocked.length,review:review.length,ignored:ignored.length}};
+   review,blockedPreview,ignoredPreview:ignored.filter(e=>e.decision==='IGNORE'),counts:{blocked:blocked.length,review:review.length,ignored:ignored.length}};
 }
 export async function calendarDecision(db,data){
  const eventId=typeof data?.id==='string'?data.id:'';
@@ -152,7 +152,7 @@ export async function previewCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=servi
  const raw=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:latest?.latest??null});
  const snapshot=await resolveCalendarDecisions(db,env.GCAL_BUSY_CALENDAR_ID,raw,env);
  return {configured:true,mode:env.GCAL_SYNC_MODE||'dedicated',counts:snapshot.counts,review:snapshot.review.slice(0,100),
- blocked:snapshot.blockedPreview.slice(0,100),autoBlocked:snapshot.events.length};
+ blocked:snapshot.blockedPreview.slice(0,100),ignored:snapshot.ignoredPreview?.slice(0,100)||[],autoBlocked:snapshot.events.length};
 }
 export async function calendarConflicts(db){
  const query="SELECT DISTINCT o.id AS order_id,o.status,s.date,s.time FROM busy_intervals b JOIN slots s ON b.active=1 AND b.source='google' AND b.starts_at < s.starts_at+((CAST(substr(s.time,7,2) AS INTEGER)*60+CAST(substr(s.time,10,2) AS INTEGER)-CAST(substr(s.time,1,2) AS INTEGER)*60-CAST(substr(s.time,4,2) AS INTEGER))*60) AND b.ends_at>s.starts_at JOIN order_slots os ON os.slot_id=s.id AND os.active=1 JOIN orders o ON o.id=os.order_id WHERE o.status IN ('PAID','PENDING','FAILED','LINE_CONFIRMATION') ORDER BY s.date,s.time LIMIT 100";
