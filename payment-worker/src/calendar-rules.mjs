@@ -1,11 +1,15 @@
 // Classifier for PRIMARY Google Calendar; deliberate exclusion of class/course
 // reference events prevents an all-day teaching reminder closing public seats.
 // Never infer "available" from tentative events: surface them for review.
-export function classifyCalendarEvent(e) {
+export function classifyCalendarEvent(e,{calendarId=null}={}) {
   const title=typeof e?.summary==='string'?e.summary.trim():'';
   const allDay=Boolean(e?.start?.date);
   const attendees=Array.isArray(e?.attendees)?e.attendees:[];
-  const self=attendees.find(a=>a?.self===true);
+  // For a shared personal Calendar, "self" may refer to the API client rather
+  // than the owner; match the actual calendar owner address when available.
+  const calendarEmail=typeof calendarId==='string'?calendarId.toLowerCase():'';
+  const self=attendees.find(a=>a?.email?.toLowerCase()===calendarEmail)
+    ||attendees.find(a=>a?.self===true);
   const decision=(status,reason)=>({status,reason});
   if(!e||e.status==='cancelled')return decision('IGNORE','CANCELLED');
   if(e.transparency==='transparent'||e.eventType==='workingLocation')return decision('IGNORE','MARKED_FREE');
@@ -23,11 +27,11 @@ export function classifyCalendarEvent(e) {
   }
   return decision('BLOCK','CONFIRMED_BUSY');
 }
-export function categorizeCalendarEvents(items) {
+export function categorizeCalendarEvents(items,options={}) {
   if(!Array.isArray(items))throw Error('CALENDAR_INVALID_RESPONSE');
   const blocked=[],review=[],ignored=[];
   for(const e of items){
-    const result=classifyCalendarEvent(e);
+    const result=classifyCalendarEvent(e,options);
     if(result.status==='BLOCK')blocked.push(e);
     else if(result.status==='REVIEW')review.push({event:e,reason:result.reason});
     else ignored.push({event:e,reason:result.reason});
