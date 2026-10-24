@@ -12,6 +12,18 @@ NEWEBPAY_ATM_ENABLED = "true"
 NEWEBPAY_INSTALLMENTS = "0"
 NEWEBPAY_LINEPAY_ENABLED = "false"
 SITE_ORIGIN = "https://reservation.hanascent.com"
+# Backoffice is a module within HANA WORKSPACE GitHub Pages (admin bearer auth still required).
+HANA_WORKSPACE_ORIGIN = "https://h-s017.github.io"
+# Optional schedule buffers; only a dedicated calendar is synchronized.
+GCAL_BUFFER_BEFORE_MINUTES = "0"
+GCAL_BUFFER_AFTER_MINUTES = "0"
+# Use the EXISTING Google Calendar with conservative course/all-day review rules.
+# GCAL_BUSY_CALENDAR_ID must be the user calendar ID (NOT the service account "primary").
+GCAL_SYNC_MODE = "primary_review"
+# Notifications are opt-in. No messages sent until recipient and provider credentials are authorized.
+NOTIFICATIONS_ENABLED = "false"
+# Private Worker secrets are documented in docs/NOTIFICATIONS_SETUP.md
+# Cloudflare secrets: GCAL_SERVICE_ACCOUNT_JSON and GCAL_BUSY_CALENDAR_ID
 # Replace with the deployed HTTPS Worker origin, without a trailing slash.
 PUBLIC_ORIGIN = "https://hana-course-production.hana-reservation-payment.workers.dev"
 # Secrets (wrangler secret put): NEWEBPAY_MERCHANT_ID, NEWEBPAY_HASH_KEY,

@@ -13,7 +13,7 @@ async function paymentAPI(path,data={}) {
   const session=sessionForPayment();
   const r=await fetch(C.PAYMENT_API.replace(/\/$/,'')+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.token},body:JSON.stringify(data)});
   const j=await r.json();
-  if(!r.ok||!j.ok){const messages={SLOT_FULL:'此場次已額滿或已超過預約期限，請重新選擇。',PAYMENT_PENDING:'付款結果尚在確認中，請先更新付款狀態。',BAD_REQUEST:'請確認姓名、手機、Email 與場次資料。',NOT_FOUND:'找不到此訂單，請聯繫官方 LINE。',CONFIGURATION:'線上付款尚未開放，請聯繫官方 LINE。'};const error=new Error(messages[j.error]||'暫時無法確認訂單，請稍後重試。');error.code=j.error;throw error;}
+  if(!r.ok||!j.ok){const messages={SLOT_FULL:'此場次已額滿或已超過預約期限，請重新選擇。',BUSY_CONFLICT:'此場次因檔期調整暫停預約，請選擇其他時段。',PAYMENT_PENDING:'付款結果尚在確認中，請先更新付款狀態。',BAD_REQUEST:'請確認姓名、手機、Email 與場次資料。',NOT_FOUND:'找不到此訂單，請聯繫官方 LINE。',CONFIGURATION:'線上付款尚未開放，請聯繫官方 LINE。'};const error=new Error(messages[j.error]||'暫時無法確認訂單，請稍後重試。');error.code=j.error;throw error;}
   if(j.order){paymentOrder=j.order;paymentSession.id=j.order.id;sessionStorage.setItem(paymentStorageKey,JSON.stringify(paymentSession));}
   return j;
 }
