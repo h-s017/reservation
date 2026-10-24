@@ -1,3 +1,4 @@
+import {categorizeCalendarEvents} from './calendar-rules.mjs';
 // Google Calendar is a read-only source of busy intervals; no Google writes.
 // Keys live in Cloudflare secrets and no calendar titles are exposed publicly.
 const encoder=new TextEncoder();
@@ -61,7 +62,7 @@ export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAcco
  do{
   const q=new URLSearchParams({singleEvents:'true',showDeleted:'false',orderBy:'startTime',timeZone:'Asia/Taipei',
    timeMin:new Date(window.from*1000).toISOString(),timeMax:new Date(window.to*1000).toISOString(),
-   maxResults:'250',fields:'nextPageToken,items(id,status,transparency,eventType,start(date,dateTime),end(date,dateTime))'});
+   maxResults:'250',fields:'nextPageToken,items(id,summary,status,transparency,eventType,start(date,dateTime),end(date,dateTime),attendees(self,responseStatus))'});
   if(pageToken)q.set('pageToken',pageToken);
   const url='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(env.GCAL_BUSY_CALENDAR_ID)+'/events?'+q;
   const response=await fetchFn(url,{headers:{Authorization:'Bearer '+token}});
@@ -73,7 +74,14 @@ export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAcco
   pageToken=typeof data.nextPageToken==='string'?data.nextPageToken:'';
   if(pageToken&&++pages>=10)throw Error('CALENDAR_PAGINATION_LIMIT');
  }while(pageToken);
- return {window,events:normalizeEvents(items,{before:safeMinutes(env.GCAL_BUFFER_BEFORE_MINUTES),after:safeMinutes(env.GCAL_BUFFER_AFTER_MINUTES)})};
+ const categorized=env.GCAL_SYNC_MODE==='primary_review'
+ ?categorizeCalendarEvents(items)
+ :{blocked:items,review:[],ignored:[],counts:{blocked:items.length,review:0,ignored:0}};
+ const buffers={before:safeMinutes(env.GCAL_BUFFER_BEFORE_MINUTES),after:safeMinutes(env.GCAL_BUFFER_AFTER_MINUTES)};
+ return {window,events:normalizeEvents(categorized.blocked,buffers),
+ review:categorized.review.map(x=>({title:String(x.event.summary||'（未命名行程）').slice(0,120),
+   start:x.event.start,end:x.event.end,reason:x.reason})),
+ counts:categorized.counts};
 }
 const sql=(db,q,...args)=>db.prepare(q).bind(...args);
 const hashedId=async(calendar,id)=>{
@@ -97,6 +105,16 @@ export async function applyCalendarSnapshot(db,calendar,snapshot,{nowMs=Date.now
  await db.batch(queries);
  return {status:'OK',last_success_at:stamp,event_count:snapshot.events.length};
 }
+// Authenticated, read-only preview: titles are returned ONLY to the manager UI.
+// No preview event titles are persisted to D1 or exposed through public /api/slots.
+export async function previewCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=serviceAccountAccessToken,nowMs=Date.now()}={}){
+ if(!calendarConfigured(env))return {configured:false,mode:env.GCAL_SYNC_MODE||'dedicated',counts:null,review:[]};
+ if(env.GCAL_SYNC_MODE==='primary_review'&&env.GCAL_BUSY_CALENDAR_ID==='primary')throw Error('CALENDAR_USE_EXPLICIT_ID');
+ const latest=await sql(db,'SELECT MAX(starts_at) AS latest FROM slots WHERE starts_at>=?',Math.floor(nowMs/1000)).first();
+ const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:latest?.latest??null});
+ return {configured:true,mode:env.GCAL_SYNC_MODE||'dedicated',counts:snapshot.counts,review:snapshot.review.slice(0,100),
+ autoBlocked:snapshot.events.length};
+}
 export async function calendarConflicts(db){
  const query="SELECT DISTINCT o.id AS order_id,o.status,s.date,s.time FROM busy_intervals b JOIN slots s ON b.active=1 AND b.source='google' AND b.starts_at < s.starts_at+((CAST(substr(s.time,7,2) AS INTEGER)*60+CAST(substr(s.time,10,2) AS INTEGER)-CAST(substr(s.time,1,2) AS INTEGER)*60-CAST(substr(s.time,4,2) AS INTEGER))*60) AND b.ends_at>s.starts_at JOIN order_slots os ON os.slot_id=s.id AND os.active=1 JOIN orders o ON o.id=os.order_id WHERE o.status IN ('PAID','PENDING','FAILED','LINE_CONFIRMATION') ORDER BY s.date,s.time LIMIT 100";
  const rows=await sql(db,query).all();
@@ -108,11 +126,13 @@ export async function calendarStatus(db,env){
 }
 export async function syncCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=serviceAccountAccessToken,nowMs=Date.now()}={}){
  if(!calendarConfigured(env))return {configured:false,status:'NOT_CONFIGURED'};
+ if(env.GCAL_SYNC_MODE==='primary_review'&&env.GCAL_BUSY_CALENDAR_ID==='primary')return {configured:true,status:'ERROR',error_code:'CALENDAR_USE_EXPLICIT_ID'};
  try{
   // Source-of-truth booking horizon comes from D1, not from a fixed 120-day guess.
   const last=await sql(db,'SELECT MAX(starts_at) AS latest FROM slots WHERE starts_at>=?',Math.floor(nowMs/1000)).first();
   const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:last?.latest??null});
-  return {configured:true,...await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,snapshot,{nowMs})};
+  return {configured:true,...await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,snapshot,{nowMs}),
+   counts:snapshot.counts};
  }catch(error){
   if(String(error?.message||'').includes('CALENDAR_STALE_SNAPSHOT')){
    // A newer snapshot already committed. Do not mark its successful state as an error.
