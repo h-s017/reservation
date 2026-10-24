@@ -35,7 +35,7 @@ test('primary calendar review mode protects course sessions but blocks overlappi
   {...timed('免費活動'),id:'free-test',transparency:'transparent'}
  ];
  const env={DB:db,GCAL_SYNC_MODE:'primary_review',GCAL_SERVICE_ACCOUNT_JSON:'mock',
-  GCAL_BUSY_CALENDAR_ID:'hanasscent@gmail.com'};
+  GCAL_BUSY_CALENDAR_ID:'owner-calendar@example.test'};
  const options={nowMs:Date.parse('2099-11-01T00:00:00+08:00'),
   tokenFn:async()=> 'mock-token',
   fetchFn:async()=>Response.json({items:googleEvents})};
@@ -53,7 +53,7 @@ test('primary calendar review mode protects course sessions but blocks overlappi
 test('course-only primary calendar leaves the published class available for booking',async()=>{
  const db=fixture();
  const env={DB:db,GCAL_SYNC_MODE:'primary_review',GCAL_SERVICE_ACCOUNT_JSON:'mock',
-  GCAL_BUSY_CALENDAR_ID:'hanasscent@gmail.com'};
+  GCAL_BUSY_CALENDAR_ID:'owner-calendar@example.test'};
  const outcome=await syncCalendar(env,{nowMs:Date.parse('2099-11-01T00:00:00+08:00'),
   tokenFn:async()=> 'token',
   fetchFn:async()=>Response.json({items:[allDay('氣味藝術序曲 Vol.1｜心村')]})});
