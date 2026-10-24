@@ -1,4 +1,4 @@
-import {categorizeCalendarEvents} from './calendar-rules.mjs';
+import {categorizeCalendarEvents,classifyCalendarEvent} from './calendar-rules.mjs';
 // Google Calendar is a read-only source of busy intervals; no Google writes.
 // Keys live in Cloudflare secrets and no calendar titles are exposed publicly.
 const encoder=new TextEncoder();
@@ -81,13 +81,51 @@ export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAcco
  return {window,events:normalizeEvents(categorized.blocked,buffers),
  review:categorized.review.map(x=>({title:String(x.event.summary||'（未命名行程）').slice(0,120),
    start:x.event.start,end:x.event.end,reason:x.reason})),
- counts:categorized.counts};
+ counts:categorized.counts,rawItems:items};
 }
 const sql=(db,q,...args)=>db.prepare(q).bind(...args);
 const hashedId=async(calendar,id)=>{
  const digest=await crypto.subtle.digest('SHA-256',encoder.encode(calendar+'\n'+id));
  return 'gcal-'+Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
 };
+// Resolve individual owner choices AFTER a complete Google API response is fetched.
+// Only this authenticated Worker uses raw items; private titles are never stored in D1.
+async function resolveCalendarDecisions(db,calendar,snapshot,env){
+ if(env.GCAL_SYNC_MODE!=='primary_review')return {...snapshot,blockedPreview:[]};
+ const stored=(await sql(db,"SELECT event_id,decision FROM calendar_event_decisions").all()).results;
+ const overrides=new Map(stored.map(r=>[r.event_id,r.decision]));
+ const blocked=[],review=[],ignored=[],blockedPreview=[];
+ for(const event of snapshot.rawItems){
+  if(typeof event?.id!=='string')throw Error('CALENDAR_INVALID_ID');
+  const id=await hashedId(calendar,event.id);
+  const base=classifyCalendarEvent(event);
+  const override=overrides.get(id);
+  // Cancelled, Google "free", working-location and declined events never block.
+  // A Google event cannot be forced busy after its owner has declined it.
+  const protectedIgnore=['CANCELLED','MARKED_FREE','DECLINED'].includes(base.reason);
+  const status=protectedIgnore?base.status:override||base.status;
+  const reason=!protectedIgnore&&override?'OWNER_'+override:base.reason;
+  const display={id,title:String(event.summary||'（未命名行程）').slice(0,120),
+    start:event.start,end:event.end,reason,decision:override||null};
+  if(status==='BLOCK'){blocked.push(event);blockedPreview.push(display);}
+  else if(status==='REVIEW')review.push(display);
+  else ignored.push(display);
+ }
+ const buffer={before:safeMinutes(env.GCAL_BUFFER_BEFORE_MINUTES),after:safeMinutes(env.GCAL_BUFFER_AFTER_MINUTES)};
+ return {...snapshot,events:normalizeEvents(blocked,buffer),
+   review,blockedPreview,counts:{blocked:blocked.length,review:review.length,ignored:ignored.length}};
+}
+export async function calendarDecision(db,data){
+ const eventId=typeof data?.id==='string'?data.id:'';
+ const decision=data?.decision;
+ if(!/^gcal-[0-9a-f]{64}$/.test(eventId)||!['BLOCK','IGNORE','RESET'].includes(decision))throw Error('BAD_REQUEST');
+ const now=Math.floor(Date.now()/1000);
+ const write=decision==='RESET'
+  ?sql(db,"DELETE FROM calendar_event_decisions WHERE event_id=?",eventId)
+  :sql(db,"INSERT INTO calendar_event_decisions(event_id,decision,updated_at) VALUES(?,?,?) ON CONFLICT(event_id) DO UPDATE SET decision=excluded.decision,updated_at=excluded.updated_at",eventId,decision,now);
+ await db.batch([write,sql(db,"INSERT INTO admin_audit(action,target,created_at) VALUES('CALENDAR_DECISION',?,?)",decision+':'+eventId,now)]);
+ return {id:eventId,decision};
+}
 export async function applyCalendarSnapshot(db,calendar,snapshot,{nowMs=Date.now(),syncId=crypto.randomUUID()}={}){
  if(!snapshot||!Number.isInteger(snapshot.window?.from)||!Number.isInteger(snapshot.window?.to)||!Array.isArray(snapshot.events)||snapshot.window.to<=snapshot.window.from)throw Error('CALENDAR_INVALID_RESPONSE');
  const stamp=Math.floor(nowMs/1000),seen=new Set(),queries=[];
@@ -111,9 +149,10 @@ export async function previewCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=servi
  if(!calendarConfigured(env))return {configured:false,mode:env.GCAL_SYNC_MODE||'dedicated',counts:null,review:[]};
  if(env.GCAL_SYNC_MODE==='primary_review'&&env.GCAL_BUSY_CALENDAR_ID==='primary')throw Error('CALENDAR_USE_EXPLICIT_ID');
  const latest=await sql(db,'SELECT MAX(starts_at) AS latest FROM slots WHERE starts_at>=?',Math.floor(nowMs/1000)).first();
- const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:latest?.latest??null});
+ const raw=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:latest?.latest??null});
+ const snapshot=await resolveCalendarDecisions(db,env.GCAL_BUSY_CALENDAR_ID,raw,env);
  return {configured:true,mode:env.GCAL_SYNC_MODE||'dedicated',counts:snapshot.counts,review:snapshot.review.slice(0,100),
- autoBlocked:snapshot.events.length};
+ blocked:snapshot.blockedPreview.slice(0,100),autoBlocked:snapshot.events.length};
 }
 export async function calendarConflicts(db){
  const query="SELECT DISTINCT o.id AS order_id,o.status,s.date,s.time FROM busy_intervals b JOIN slots s ON b.active=1 AND b.source='google' AND b.starts_at < s.starts_at+((CAST(substr(s.time,7,2) AS INTEGER)*60+CAST(substr(s.time,10,2) AS INTEGER)-CAST(substr(s.time,1,2) AS INTEGER)*60-CAST(substr(s.time,4,2) AS INTEGER))*60) AND b.ends_at>s.starts_at JOIN order_slots os ON os.slot_id=s.id AND os.active=1 JOIN orders o ON o.id=os.order_id WHERE o.status IN ('PAID','PENDING','FAILED','LINE_CONFIRMATION') ORDER BY s.date,s.time LIMIT 100";
@@ -130,7 +169,8 @@ export async function syncCalendar(env,{db=env.DB,fetchFn=fetch,tokenFn=serviceA
  try{
   // Source-of-truth booking horizon comes from D1, not from a fixed 120-day guess.
   const last=await sql(db,'SELECT MAX(starts_at) AS latest FROM slots WHERE starts_at>=?',Math.floor(nowMs/1000)).first();
-  const snapshot=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:last?.latest??null});
+  const raw=await fetchCalendarEvents(env,{fetchFn,tokenFn,nowMs,horizonUntil:last?.latest??null});
+  const snapshot=await resolveCalendarDecisions(db,env.GCAL_BUSY_CALENDAR_ID,raw,env);
   return {configured:true,...await applyCalendarSnapshot(db,env.GCAL_BUSY_CALENDAR_ID,snapshot,{nowMs}),
    counts:snapshot.counts};
  }catch(error){
