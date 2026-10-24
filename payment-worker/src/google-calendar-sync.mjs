@@ -62,7 +62,7 @@ export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAcco
  do{
   const q=new URLSearchParams({singleEvents:'true',showDeleted:'false',orderBy:'startTime',timeZone:'Asia/Taipei',
    timeMin:new Date(window.from*1000).toISOString(),timeMax:new Date(window.to*1000).toISOString(),
-   maxResults:'250',fields:'nextPageToken,items(id,summary,status,transparency,eventType,start(date,dateTime),end(date,dateTime),attendees(self,responseStatus))'});
+   maxResults:'250',fields:'nextPageToken,items(id,summary,status,transparency,eventType,start(date,dateTime),end(date,dateTime),attendees(email,self,responseStatus))'});
   if(pageToken)q.set('pageToken',pageToken);
   const url='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(env.GCAL_BUSY_CALENDAR_ID)+'/events?'+q;
   const response=await fetchFn(url,{headers:{Authorization:'Bearer '+token}});
@@ -75,7 +75,7 @@ export async function fetchCalendarEvents(env,{fetchFn=fetch,tokenFn=serviceAcco
   if(pageToken&&++pages>=10)throw Error('CALENDAR_PAGINATION_LIMIT');
  }while(pageToken);
  const categorized=env.GCAL_SYNC_MODE==='primary_review'
- ?categorizeCalendarEvents(items)
+ ?categorizeCalendarEvents(items,{calendarId:env.GCAL_BUSY_CALENDAR_ID})
  :{blocked:items,review:[],ignored:[],counts:{blocked:items.length,review:0,ignored:0}};
  const buffers={before:safeMinutes(env.GCAL_BUFFER_BEFORE_MINUTES),after:safeMinutes(env.GCAL_BUFFER_AFTER_MINUTES)};
  return {window,events:normalizeEvents(categorized.blocked,buffers),
@@ -98,7 +98,7 @@ async function resolveCalendarDecisions(db,calendar,snapshot,env){
  for(const event of snapshot.rawItems){
   if(typeof event?.id!=='string')throw Error('CALENDAR_INVALID_ID');
   const id=await hashedId(calendar,event.id);
-  const base=classifyCalendarEvent(event);
+  const base=classifyCalendarEvent(event,{calendarId:calendar});
   const override=overrides.get(id);
   // Cancelled, Google "free", working-location and declined events never block.
   // A Google event cannot be forced busy after its owner has declined it.
