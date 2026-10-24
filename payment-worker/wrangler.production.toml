@@ -17,6 +17,9 @@ HANA_WORKSPACE_ORIGIN = "https://h-s017.github.io"
 # Optional schedule buffers; only a dedicated calendar is synchronized.
 GCAL_BUFFER_BEFORE_MINUTES = "0"
 GCAL_BUFFER_AFTER_MINUTES = "0"
+# Use the EXISTING Google Calendar with conservative course/all-day review rules.
+# GCAL_BUSY_CALENDAR_ID must be the user calendar ID (NOT the service account "primary").
+GCAL_SYNC_MODE = "primary_review"
 # Notifications are opt-in. No messages sent until recipient and provider credentials are authorized.
 NOTIFICATIONS_ENABLED = "false"
 # Private Worker secrets are documented in docs/NOTIFICATIONS_SETUP.md
