@@ -1,7 +1,7 @@
 import {saveAccount,reconcileExpired} from './atm.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
-import {syncCalendar,calendarStatus,calendarConflicts,previewCalendar} from './google-calendar-sync.mjs';
+import {syncCalendar,calendarStatus,calendarConflicts,previewCalendar,calendarDecision} from './google-calendar-sync.mjs';
 import {notificationStatus,processNotifications} from './notifications.mjs';
 export default {
   async scheduled(event,env,ctx){ctx.waitUntil(Promise.allSettled([expireDrafts(env.DB),reconcileExpired(env),syncCalendar(env),processNotifications(env)]));},
@@ -49,6 +49,7 @@ export default {
         if(url.pathname==='/api/admin/calendar-sync')return reply({ok:true,...await syncCalendar(env)});
         if(url.pathname==='/api/admin/calendar-conflicts')return reply({ok:true,...await calendarConflicts(env.DB)});
         if(url.pathname==='/api/admin/calendar-preview')return reply({ok:true,...await previewCalendar(env)});
+        if(url.pathname==='/api/admin/calendar-decision')return reply({ok:true,...await calendarDecision(env.DB,command)});
         if(url.pathname==='/api/admin/notifications')return reply({ok:true,...await notificationStatus(env.DB,env)});
         if(url.pathname==='/api/admin/notifications-dispatch')return reply({ok:true,...await processNotifications(env)});
         const result=await adminAction(env.DB,url.pathname,command);if(ctx?.waitUntil&&env.NOTIFICATIONS_ENABLED==='true')ctx.waitUntil(processNotifications(env).catch(()=>{}));return reply({ok:true,...result});
