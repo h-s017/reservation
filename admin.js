@@ -20,7 +20,20 @@ async function slots(){currentSlots=(await api('slots',{from:new Date().toLocale
 el('login').onsubmit=e=>{e.preventDefault();adminKey=el('key').value;run(async()=>{await orders();el('key').value='';el('login').hidden=true;el('panel').hidden=false;});};
 el('logout').onclick=()=>{adminKey='';currentOrders=[];currentSlots=[];el('rows').replaceChildren();el('panel').hidden=true;el('login').hidden=false;};
 el('orders').onclick=()=>run(()=>orders());el('slots').onclick=()=>run(slots);el('filter').onchange=()=>run(slots);
-el('dateForm').onsubmit=e=>{e.preventDefault();run(async()=>{await api('date',{date:el('date').value,closed:true});await slots();});};
+async function setDateClosed(closed){
+  const date=el('date').value;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){el('message').textContent='請先選擇有效日期';return;}
+  if(!confirm((closed?'關閉':'開放')+' '+date+' 整日預約？'+(closed?'已成立訂單不受影響。':'此操作只解除手動禁約，其他場次與行程限制仍生效。')))return;
+  const buttons=[el('closeDate'),el('openDate')];buttons.forEach(b=>b.disabled=true);
+  try{
+    await api('date',{date,closed});
+    await slots();
+    el('message').textContent=date+(closed?' 已設定整日禁約。':' 已移除手動整日禁約；實際可預約時段仍依其他規則判定。');
+  }catch(e){el('message').textContent=e.message;}
+  finally{buttons.forEach(b=>b.disabled=false);}
+}
+el('dateForm').onsubmit=e=>{e.preventDefault();setDateClosed(true);};
+el('openDate').onclick=()=>setDateClosed(false);
 el('export').onclick=()=>{const keys=['id','course','variant','sessions','name','phone','email','line','note','amount','quantity','unit_price','booking_unit','status','trade_no','created_at','paid_at','cancellation_status','cancellation_reason','refund_reference','refund_requested_at','refunded_at'];const safe=v=>'"'+String(v??'').replace(/^[=+@\-\t\r]/,"'$&").replaceAll('"','""')+'"';const csv='\uFEFF'+[keys,...currentOrders.map(o=>keys.map(k=>o[k]))].map(r=>r.map(safe).join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='course-orders.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
 
 function refundActions(o,actions){
