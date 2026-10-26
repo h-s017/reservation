@@ -35,9 +35,12 @@ jobs:
         run: |
           node scripts/check-course-prices.mjs
           node --test payment-worker/test/*.test.mjs
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
       - name: Install Wrangler
         working-directory: payment-worker
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Check Cloudflare deployment credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
