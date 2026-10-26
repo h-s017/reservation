@@ -1,4 +1,4 @@
-let adminKey='',currentOrders=[],currentSlots=[],calendarData={dates:[],slots:[],courses:[]},selectedDate='',calendarMonth=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}).slice(0,7);
+let adminKey='',currentOrders=[],currentSlots=[],calendarData={dates:[],slots:[],courses:[]},selectedDate='',calendarMonth=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit'}).format(new Date());
 const el=id=>document.getElementById(id);
 async function api(path,data={}){const r=await fetch('/api/admin/'+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+adminKey},body:JSON.stringify(data)});const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'暫時無法處理');return j;}
 async function run(fn){try{el('message').textContent='處理中…';await fn();el('message').textContent='已更新';}catch(e){el('message').textContent=e.message;}}
@@ -60,8 +60,8 @@ function renderDateDetails(){
   }
 }
 el('calendarTab').onclick=()=>run(loadCalendar);
-el('monthPrev').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=new Date(y,m-2,1).toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}).slice(0,7);run(loadCalendar);};
-el('monthNext').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=new Date(y,m,1).toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}).slice(0,7);run(loadCalendar);};
+el('monthPrev').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=String(y-Math.floor((13-m)/12)).padStart(4,'0')+'-'+String(((m+10)%12)+1).padStart(2,'0');run(loadCalendar);};
+el('monthNext').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=String(y+Math.floor(m/12)).padStart(4,'0')+'-'+String((m%12)+1).padStart(2,'0');run(loadCalendar);};
 el('newSlotForm').onsubmit=e=>{e.preventDefault();run(async()=>{
   if(!selectedDate)throw new Error('請先選擇日期');
   if(dayState(selectedDate).blocked)throw new Error('此日期目前為手動禁約，請先開放日期後再新增場次');
