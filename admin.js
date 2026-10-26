@@ -52,6 +52,8 @@ function renderDateDetails(){
   for(const slot of s.slots){
     const line=document.createElement('div');line.className='cal-slot';
     const label=document.createElement('span');label.textContent=[slot.time,slot.course,slot.variant,slot.booked+'/'+slot.capacity,slot.bookable?'可預約':'不可預約'].filter(Boolean).join('｜');line.append(label);
+    const capacityInput=document.createElement('input');capacityInput.type='number';capacityInput.min=Math.max(1,slot.booked);capacityInput.max=100;capacityInput.value=slot.capacity;capacityInput.setAttribute('aria-label','場次容量');line.append(capacityInput);
+    const save=document.createElement('button');save.type='button';save.textContent='儲存名額';save.onclick=()=>run(async()=>{await api('slot',{id:slot.id,status:slot.status,capacity:Number(capacityInput.value)});await loadCalendar();});line.append(save);
     const toggle=document.createElement('button');toggle.type='button';toggle.textContent=slot.status==='OPEN'?'關閉場次':'開放場次';
     toggle.onclick=async()=>{if(!confirm('修改 '+slot.time+' 場次？'))return;await run(async()=>{await api('slot',{id:slot.id,status:slot.status==='OPEN'?'CLOSED':'OPEN',capacity:slot.capacity});await loadCalendar();});};
     line.append(toggle);list.append(line);
@@ -62,6 +64,7 @@ el('monthPrev').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);ca
 el('monthNext').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=new Date(y,m,1).toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}).slice(0,7);run(loadCalendar);};
 el('newSlotForm').onsubmit=e=>{e.preventDefault();run(async()=>{
   if(!selectedDate)throw new Error('請先選擇日期');
+  if(dayState(selectedDate).blocked)throw new Error('此日期目前為手動禁約，請先開放日期後再新增場次');
   if(!confirm('新增 '+selectedDate+' '+el('newTime').value+' 的場次？'))return;
   await api('create-slot',{date:selectedDate,time:el('newTime').value,courseId:el('newCourse').value,capacity:Number(el('newCapacity').value)});
   await loadCalendar();
