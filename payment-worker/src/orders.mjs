@@ -120,6 +120,35 @@ export async function adminAction(db,path,d){
     }
     return {order:publicOrder(await getOrder(db,'id=?',o.id))};
   }
+  if(path==='/api/admin/calendar'){
+    const month=String(d.month||'');
+    if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(month))fail('BAD_REQUEST');
+    const from=month+'-01',until=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),1)).toISOString().slice(0,10);
+    const dates=await sql(db,'SELECT date,reason FROM closed_dates WHERE date>=? AND date<? ORDER BY date',from,until).all();
+    const courses=await sql(db,'SELECT id,series,course,variant,capacity,enabled FROM courses ORDER BY series,course,variant').all();
+    const slots=await sql(db,`SELECT s.id,s.course_id,c.series,c.course,c.variant,c.enabled,s.date,s.time,s.starts_at,s.capacity,s.booked,s.status,
+      CASE WHEN s.status='OPEN' AND c.enabled=1 AND d.date IS NULL AND s.booked<s.capacity AND s.starts_at>=? THEN 1 ELSE 0 END AS bookable
+      FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date
+      WHERE s.date>=? AND s.date<? ORDER BY s.date,s.time`,now()+129600,from,until).all();
+    return {dates:dates.results,courses:courses.results,slots:slots.results};
+  }
+  if(path==='/api/admin/create-slot'){
+    const date=String(d.date||''),time=String(d.time||''),courseId=String(d.courseId||''),capacity=d.capacity;
+    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date||
+      !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(time)||!courseId||courseId.length>200||
+      !Number.isInteger(capacity)||capacity<1||capacity>100)fail('BAD_REQUEST');
+    const startsAt=Math.floor(Date.parse(date+'T'+time+':00+08:00')/1000);
+    if(startsAt<now()+129600||startsAt>now()+86400*550)fail('BAD_REQUEST');
+    const course=await sql(db,'SELECT id FROM courses WHERE id=? AND enabled=1',courseId).first();
+    if(!course)fail('COURSE_UNAVAILABLE');
+    const existing=await sql(db,'SELECT id FROM slots WHERE course_id=? AND date=? AND time=?',courseId,date,time).first();
+    if(existing)fail('CAPACITY_CONFLICT');
+    const slotId='admin-'+crypto.randomUUID();
+    await db.batch([
+      sql(db,'INSERT INTO slots(id,course_id,date,time,starts_at,capacity,booked,status) VALUES(?,?,?,?,?,?,0,?)',slotId,courseId,date,time,startsAt,capacity,'OPEN'),
+      sql(db,'INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)','CREATE_SLOT',slotId,now())
+    ]);return {id:slotId};
+  }
   if(path==='/api/admin/orders'){
     const before=Number.isSafeInteger(d.before)?d.before:now()+1,beforeId=typeof d.beforeId==='string'?d.beforeId:'\uffff';
     const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,quantity,unit_price,booking_unit,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,
