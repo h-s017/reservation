@@ -1,0 +1,19 @@
+const {chromium}=require('playwright');const {readFileSync,mkdirSync}=require('node:fs');const path=require('node:path'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'../..'),origin='https://hana-course-production.hana-reservation-payment.workers.dev';
+(async()=>{const browser=await chromium.launch({headless:true});try{for(const width of [390,1280]){
+ const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'}),page=await context.newPage(),errors=[],writes=[];let reject=false;
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',async route=>{const url=new URL(route.request().url());if(url.origin!==origin)return route.abort();if(url.pathname.startsWith('/api/admin/')){
+  const data=route.request().postDataJSON();assert.equal(route.request().headers().authorization,'Bearer '+'x'.repeat(64));
+  if(url.pathname.endsWith('/date')){writes.push(data);if(reject)return route.fulfill({status:503,json:{ok:false,error:'暫時無法處理'}});return route.fulfill({json:{ok:true}});}
+  return route.fulfill({json:{ok:true,orders:[],slots:[]}});
+ }const file=url.pathname==='/admin'?'admin.html':url.pathname.slice(1);if(!['admin.html','admin.js','admin.css'].includes(file))return route.abort();return route.fulfill({contentType:file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'application/javascript':'text/css',body:readFileSync(path.join(root,file))});});
+ await page.goto(origin+'/admin');await page.locator('#key').fill('x'.repeat(64));await page.locator('#login button').click();await page.locator('#panel').waitFor({state:'visible'});assert.equal(await page.getByRole('button',{name:'開放整日預約',exact:true}).isVisible(),true);
+ await page.locator('#openDate').click();await page.getByRole('status').filter({hasText:'請先選擇有效日期'}).waitFor();assert.equal(writes.length,0);
+ await page.locator('#date').fill('2099-12-01');page.once('dialog',d=>d.dismiss());await page.locator('#openDate').click();assert.equal(writes.length,0);
+ page.once('dialog',d=>{assert.match(d.message(),/只解除手動禁約/);return d.accept();});await page.locator('#openDate').click();await page.getByRole('status').filter({hasText:'已移除手動整日禁約'}).waitFor();assert.deepEqual(writes,[{date:'2099-12-01',closed:false}]);
+ reject=true;page.once('dialog',d=>d.accept());await page.locator('#openDate').click();await page.getByRole('status').filter({hasText:'暫時無法處理'}).waitFor();assert.equal(await page.locator('#openDate').isEnabled(),true);assert.equal(await page.locator('#closeDate').isEnabled(),true);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.equal(await page.evaluate(()=>JSON.stringify(Object.values(localStorage)).includes('x'.repeat(64))),false);assert.deepEqual(errors,[]);
+ if(process.env.SCREENSHOT_DIR){mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`admin-open-date-${width}.png`),fullPage:true});}
+ await page.locator('#logout').click();assert.equal(await page.locator('#panel').isHidden(),true);await context.close();console.log('PASS '+width+'px: synthetic admin login, visible open-day control, cancelled confirmation, closed=false request, server failure and logout. No live API requests.');
+}}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
