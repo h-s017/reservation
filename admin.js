@@ -1,4 +1,4 @@
-let adminKey='',currentOrders=[],currentSlots=[];
+let adminKey='',currentOrders=[],currentSlots=[],calendarData={dates:[],slots:[],courses:[]},selectedDate='',calendarMonth=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit'}).format(new Date());
 const el=id=>document.getElementById(id);
 async function api(path,data={}){const r=await fetch('/api/admin/'+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+adminKey},body:JSON.stringify(data)});const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'暫時無法處理');return j;}
 async function run(fn){try{el('message').textContent='處理中…';await fn();el('message').textContent='已更新';}catch(e){el('message').textContent=e.message;}}
@@ -17,7 +17,60 @@ function renderSlots(){heading(['課程','場次','已保留／容量','狀態�
   }
 }
 async function slots(){currentSlots=(await api('slots',{from:new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})})).slots;renderSlots();}
-el('login').onsubmit=e=>{e.preventDefault();adminKey=el('key').value;run(async()=>{await orders();el('key').value='';el('login').hidden=true;el('panel').hidden=false;});};
+function dayState(ds){
+  const blocked=calendarData.dates.some(x=>x.date===ds),slots=calendarData.slots.filter(x=>x.date===ds);
+  return {blocked,slots,available:slots.filter(x=>x.bookable),full:slots.filter(x=>!x.bookable)};
+}
+async function loadCalendar(){
+  calendarData=await api('calendar',{month:calendarMonth});
+  renderCalendar();renderDateDetails();
+}
+function renderCalendar(){
+  const [year,month]=calendarMonth.split('-').map(Number),first=new Date(year,month-1,1),length=new Date(year,month,0).getDate();
+  el('monthTitle').textContent=year+' 年 '+month+' 月';
+  const grid=el('monthGrid');grid.replaceChildren();
+  for(let i=0;i<first.getDay();i++){const blank=document.createElement('span');blank.className='cal-blank';grid.append(blank);}
+  for(let d=1;d<=length;d++){
+    const ds=calendarMonth+'-'+String(d).padStart(2,'0'),state=dayState(ds),b=document.createElement('button');
+    b.type='button';b.className='cal-day'+(state.blocked?' blocked':state.available.length?' available':' unavailable')+(selectedDate===ds?' selected':'');
+    b.textContent=d+'日';const note=document.createElement('small');
+    note.textContent=state.blocked?'手動禁約':state.available.length?'可預約 '+state.available.length+' 場':state.slots.length?'無可預約場次':'未設定場次';
+    b.append(note);b.onclick=()=>{selectedDate=ds;el('date').value=ds;renderCalendar();renderDateDetails();};grid.append(b);
+  }
+}
+function renderDateDetails(){
+  if(!selectedDate){el('dateDetails').hidden=true;return;}
+  el('dateDetails').hidden=false;el('selectedDateTitle').textContent=selectedDate+'｜日期管理';
+  const s=dayState(selectedDate);
+  el('selectedDateState').textContent=s.blocked?'目前：手動禁約':s.available.length?'目前：可預約 '+s.available.length+' 場':s.slots.length?'目前：全部場次不可預約':'目前：尚無場次';
+  const select=el('newCourse'),saved=select.value;select.replaceChildren();
+  for(const c of calendarData.courses.filter(x=>x.enabled)){
+    const option=document.createElement('option');option.value=c.id;option.textContent=[c.series,c.course,c.variant].filter(Boolean).join('｜');select.append(option);
+  }
+  if([...select.options].some(x=>x.value===saved))select.value=saved;
+  const list=el('dateSlots');list.replaceChildren();
+  for(const slot of s.slots){
+    const line=document.createElement('div');line.className='cal-slot';
+    const label=document.createElement('span');label.textContent=[slot.time,slot.course,slot.variant,slot.booked+'/'+slot.capacity,slot.bookable?'可預約':'不可預約'].filter(Boolean).join('｜');line.append(label);
+    const capacityInput=document.createElement('input');capacityInput.type='number';capacityInput.min=Math.max(1,slot.booked);capacityInput.max=100;capacityInput.value=slot.capacity;capacityInput.setAttribute('aria-label','場次容量');line.append(capacityInput);
+    const save=document.createElement('button');save.type='button';save.textContent='儲存名額';save.onclick=()=>run(async()=>{await api('slot',{id:slot.id,status:slot.status,capacity:Number(capacityInput.value)});await loadCalendar();});line.append(save);
+    const toggle=document.createElement('button');toggle.type='button';toggle.textContent=slot.status==='OPEN'?'關閉場次':'開放場次';
+    toggle.onclick=async()=>{if(!confirm('修改 '+slot.time+' 場次？'))return;await run(async()=>{await api('slot',{id:slot.id,status:slot.status==='OPEN'?'CLOSED':'OPEN',capacity:slot.capacity});await loadCalendar();});};
+    line.append(toggle);list.append(line);
+  }
+}
+el('calendarTab').onclick=()=>run(loadCalendar);
+el('monthPrev').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=String(y-Math.floor((13-m)/12)).padStart(4,'0')+'-'+String(((m+10)%12)+1).padStart(2,'0');run(loadCalendar);};
+el('monthNext').onclick=()=>{const [y,m]=calendarMonth.split('-').map(Number);calendarMonth=String(y+Math.floor(m/12)).padStart(4,'0')+'-'+String((m%12)+1).padStart(2,'0');run(loadCalendar);};
+el('newSlotForm').onsubmit=e=>{e.preventDefault();run(async()=>{
+  if(!selectedDate)throw new Error('請先選擇日期');
+  if(dayState(selectedDate).blocked)throw new Error('此日期目前為手動禁約，請先開放日期後再新增場次');
+  if(!confirm('新增 '+selectedDate+' '+el('newTime').value+' 的場次？'))return;
+  await api('create-slot',{date:selectedDate,time:el('newTime').value,courseId:el('newCourse').value,capacity:Number(el('newCapacity').value)});
+  await loadCalendar();
+});};
+el('date').onchange=()=>{selectedDate=el('date').value;calendarMonth=selectedDate.slice(0,7);run(loadCalendar);};
+el('login').onsubmit=e=>{e.preventDefault();adminKey=el('key').value;run(async()=>{await orders();await loadCalendar();el('key').value='';el('login').hidden=true;el('panel').hidden=false;});};
 el('logout').onclick=()=>{adminKey='';currentOrders=[];currentSlots=[];el('rows').replaceChildren();el('panel').hidden=true;el('login').hidden=false;};
 el('orders').onclick=()=>run(()=>orders());el('slots').onclick=()=>run(slots);el('filter').onchange=()=>run(slots);
 async function setDateClosed(closed){
@@ -27,7 +80,7 @@ async function setDateClosed(closed){
   const buttons=[el('closeDate'),el('openDate')];buttons.forEach(b=>b.disabled=true);
   try{
     await api('date',{date,closed});
-    await slots();
+    await slots();await loadCalendar();
     el('message').textContent=date+(closed?' 已設定整日禁約。':' 已移除手動整日禁約；實際可預約時段仍依其他規則判定。');
   }catch(e){el('message').textContent=e.message;}
   finally{buttons.forEach(b=>b.disabled=false);}
