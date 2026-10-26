@@ -45,3 +45,12 @@ test('admin cannot reduce capacity below held seats; closing a date blocks new b
   const db=fixture();await createOrder(db,hash,data);await createOrder(db,'b'.repeat(64),data);await assert.rejects(adminAction(db,'/api/admin/slot',{id:'s',status:'OPEN',capacity:1}),/CAPACITY_CONFLICT/);
   await adminAction(db,'/api/admin/date',{date:'2099-12-01',closed:true});await assert.rejects(createOrder(db,'c'.repeat(64),{...data,slotIds:['a','b']}),/SLOT_FULL/);
 });
+
+test('opening a whole day removes only the manual override; paid orders, payment attempts and slots stay intact',async()=>{
+ const db=fixture(4),order=await createOrder(db,hash,data),checkout=await startCheckout(db,hash,order.id);
+ await notifyOrder(db,{merchantOrderNo:checkout.attempt.id,amount:6500,status:'PAID',tradeNo:'fixture-paid'});
+ db.sqlite.exec("UPDATE slots SET status='CLOSED' WHERE id='s'");
+ const snapshot=()=>JSON.stringify({orders:db.sqlite.prepare('SELECT * FROM orders ORDER BY id').all(),attempts:db.sqlite.prepare('SELECT * FROM payment_attempts ORDER BY id').all(),slots:db.sqlite.prepare('SELECT * FROM slots ORDER BY id').all()});const before=snapshot();
+ await adminAction(db,'/api/admin/date',{date:'2099-12-01',closed:true});await adminAction(db,'/api/admin/date',{date:'2099-12-01',closed:false});
+ assert.equal(snapshot(),before);assert.equal(db.sqlite.prepare('SELECT count(*) n FROM closed_dates WHERE date=?').get('2099-12-01').n,0);assert.equal((await ownedOrder(db,hash,order.id)).status,'PAID');await assert.rejects(createOrder(db,'d'.repeat(64),data),/SLOT_FULL/);
+});
