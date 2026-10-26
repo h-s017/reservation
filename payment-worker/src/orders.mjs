@@ -122,7 +122,7 @@ export async function adminAction(db,path,d){
   }
   if(path==='/api/admin/calendar'){
     const month=String(d.month||'');
-    if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(month))fail('BAD_REQUEST');
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))fail('BAD_REQUEST');
     const from=month+'-01',until=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),1)).toISOString().slice(0,10);
     const dates=await sql(db,'SELECT date,reason FROM closed_dates WHERE date>=? AND date<? ORDER BY date',from,until).all();
     const courses=await sql(db,'SELECT id,series,course,variant,capacity,enabled FROM courses ORDER BY series,course,variant').all();
@@ -134,8 +134,8 @@ export async function adminAction(db,path,d){
   }
   if(path==='/api/admin/create-slot'){
     const date=String(d.date||''),time=String(d.time||''),courseId=String(d.courseId||''),capacity=d.capacity;
-    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date||
-      !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(time)||!courseId||courseId.length>200||
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date||
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)||!courseId||courseId.length>200||
       !Number.isInteger(capacity)||capacity<1||capacity>100)fail('BAD_REQUEST');
     const startsAt=Math.floor(Date.parse(date+'T'+time+':00+08:00')/1000);
     if(startsAt<now()+129600||startsAt>now()+86400*550)fail('BAD_REQUEST');
