@@ -6,4 +6,4 @@ Snapshot/get expose only course/slot metadata and aggregate enrolment, with no c
 
 Google deletion closes intake, retaining enrolled orders and payments; it does not refund, send notices or cancel customer orders. Existing course admin functions, catalogue, checkout/payment routes, DNS and Cron remain unchanged. Deployment alone does not activate this bridge unless its dedicated secret has been securely configured.
 
-Tests: `node --test test/*.test.mjs` from payment-worker (31 passed on Node 24). Includes SQLite race tests and proof that ADMIN_TOKEN alone cannot authorize sync.
+Tests: `node --test test/*.test.mjs` from payment-worker (32 passed on Node 24). Includes SQLite race tests and proof that ADMIN_TOKEN alone cannot authorize sync.
