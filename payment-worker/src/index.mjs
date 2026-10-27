@@ -1,4 +1,5 @@
 import {saveAccount,reconcileExpired} from './atm.mjs';
+import {focusSyncAction} from './focus-sync.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 export default {
@@ -19,6 +20,13 @@ export default {
     if(url.pathname==='/api/slots'&&request.method==='GET'){
       if(request.headers.get('Origin')===env.SITE_ORIGIN)headers['Access-Control-Allow-Origin']=env.SITE_ORIGIN;
       try{return reply({ok:true,slots:await listSlots(env.DB)});}catch(_){return reply({ok:false,error:'SERVICE_UNAVAILABLE'},503);}
+    }
+    if(url.pathname==='/api/focus/calendar-sync'){
+      if(request.method!=='POST')return reply({ok:false},405);
+      const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
+      if(!env.FOCUS_SYNC_TOKEN||env.FOCUS_SYNC_TOKEN.length<32||!equal(token,env.FOCUS_SYNC_TOKEN))return reply({ok:false,error:'UNAUTHORIZED'},401);
+      try{const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);return reply({ok:true,...await focusSyncAction(env.DB,JSON.parse(raw))});}
+      catch(e){return reply({ok:false,error:['BAD_REQUEST','SYNC_SOURCE_CHANGED','ENROLLED_REVIEW_REQUIRED','SYNC_TOO_SOON','SYNC_DATE_BLOCKED','SYNC_INCOMPLETE'].includes(e.message)?e.message:'SYNC_UNAVAILABLE'},409);}
     }
     const api=url.pathname.startsWith('/api/')||url.pathname.startsWith('/orders')||url.pathname==='/contest';
     if(!api){
