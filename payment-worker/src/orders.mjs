@@ -25,7 +25,7 @@ export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{t
     FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date WHERE s.date>=? ORDER BY s.date,s.time`,from).all();
   return rows.results;
 }
-export async function createOrder(db,hash,d,contest=false){
+export async function createOrder(db,hash,d,contest=false,manual=null){
   try{return await ownedOrder(db,hash);}catch(e){if(e.message!=='NOT_FOUND')throw e;}
   const quantity=d.quantity===undefined?1:d.quantity;
   if(!Number.isInteger(quantity)||quantity<1||quantity>100||(contest&&quantity!==1))fail('BAD_REQUEST');
@@ -41,9 +41,10 @@ export async function createOrder(db,hash,d,contest=false){
   const orderId=id('HF'),timestamp=now();
   try{
     await db.batch([
-      sql(db,`INSERT INTO orders(id,access_hash,course_id,course,variant,amount,name,phone,email,line,note,status,created_at,hold_until,quantity,unit_price,booking_unit)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,orderId,hash,s.course_id,s.course,s.variant,s.price*quantity,fields.name,fields.phone,fields.email,fields.line,fields.note,contest?'LINE_CONFIRMATION':'PENDING',timestamp,timestamp+1800,quantity,s.price,s.unit),
-      ...d.slotIds.map(slotId=>sql(db,'INSERT INTO order_slots(order_id,slot_id) VALUES(?,?)',orderId,slotId))
+      sql(db,`INSERT INTO orders(id,access_hash,course_id,course,variant,amount,name,phone,email,line,note,status,created_at,hold_until,quantity,unit_price,booking_unit,paid_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,orderId,hash,s.course_id,s.course,s.variant,s.price*quantity,fields.name,fields.phone,fields.email,fields.line,fields.note,manual?(manual.received?'PAID':'LINE_CONFIRMATION'):(contest?'LINE_CONFIRMATION':'PENDING'),timestamp,timestamp+1800,quantity,s.price,s.unit,manual?.received?timestamp:null),
+      ...d.slotIds.map(slotId=>sql(db,'INSERT INTO order_slots(order_id,slot_id) VALUES(?,?)',orderId,slotId)),
+      ...(manual?[sql(db,'INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)',manual.received?'MANUAL_ORDER_RECEIVED':'MANUAL_ORDER_UNPAID',orderId,timestamp)]:[])
     ]);
   }catch(e){
     // A competing request using the same token may have committed first.
@@ -102,7 +103,32 @@ export async function expireDrafts(db){
   await sql(db,`UPDATE orders SET status='CANCELLED' WHERE status IN ('PENDING','FAILED') AND hold_until<?
     AND NOT EXISTS(SELECT 1 FROM payment_attempts WHERE order_id=orders.id AND status IN ('PENDING','PAID'))`,now()).run();
 }
+export async function manualOrder(db,d){
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(d.request_id||'')||d.confirmed!==true||typeof d.received!=='boolean')fail('BAD_REQUEST');
+  const reference=typeof d.reference==='string'?d.reference.trim():'';
+  if(reference.length>150||(d.received&&!reference)||typeof d.note!=='string'||d.note.length>500)fail('BAD_REQUEST');
+  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('hana-focus-manual:'+d.request_id))),x=>x.toString(16).padStart(2,'0')).join('');
+  const payload={...d,note:d.note.trim()+'\n管理者手動成立｜'+(d.received?'已確認實際收款；參考：'+reference:'待收款')};
+  let existing;try{existing=await ownedOrder(db,hash);}catch(e){if(e.message!=='NOT_FOUND')throw e;}
+  const order=existing||await createOrder(db,hash,payload,false,{received:d.received});
+  if(['name','phone','email','line','note'].some(k=>order[k]!==String(payload[k]||'').trim())||order.quantity!==(d.quantity??1)||!Array.isArray(d.slotIds)||JSON.stringify(order.slots.map(s=>s.id).sort())!==JSON.stringify([...d.slotIds].sort())||order.status!==(d.received?'PAID':'LINE_CONFIRMATION'))fail('ORDER_STATE_CONFLICT');
+  return {order:publicOrder(order)};
+}
+const archiveState=`COALESCE((SELECT a.action FROM admin_audit a WHERE a.target=o.id AND a.action IN ('ARCHIVE_ORDER','RESTORE_ORDER') ORDER BY a.id DESC LIMIT 1),'RESTORE_ORDER')`;
 export async function adminAction(db,path,d){
+  if(path==='/api/admin/manual-order')return manualOrder(db,d);
+  if(['/api/admin/archive-order','/api/admin/restore-order'].includes(path)){
+    if(typeof d.id!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(d.id)||d.confirmed!==true)fail('BAD_REQUEST');
+    if(path.endsWith('restore-order')){
+      const row=await sql(db,'SELECT id FROM orders WHERE id=?',d.id).first();if(!row)fail('NOT_FOUND');
+      await sql(db,'INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)','RESTORE_ORDER',d.id,now()).run();return {id:d.id,archived:false};
+    }
+    const result=await db.batch([
+      sql(db,`UPDATE orders SET status='CANCELLED' WHERE id=? AND status IN ('PENDING','FAILED','CANCELLED') AND NOT EXISTS(SELECT 1 FROM payment_attempts WHERE order_id=orders.id AND status IN ('PENDING','PAID'))`,d.id),
+      sql(db,`INSERT INTO admin_audit(action,target,created_at) SELECT 'ARCHIVE_ORDER',id,? FROM orders WHERE id=? AND status='CANCELLED' AND NOT EXISTS(SELECT 1 FROM payment_attempts WHERE order_id=orders.id AND status IN ('PENDING','PAID'))`,now(),d.id)
+    ]);if(!result[0].meta.changes)fail('ORDER_STATE_CONFLICT');return {id:d.id,archived:true};
+  }
+
   if(['/api/admin/refund-request','/api/admin/refund-confirm'].includes(path)){
     if(typeof d.id!=='string')fail('BAD_REQUEST');
     const o=await sql(db,'SELECT * FROM orders WHERE id=?',d.id).first();if(!o)fail('NOT_FOUND');
@@ -125,7 +151,7 @@ export async function adminAction(db,path,d){
     if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))fail('BAD_REQUEST');
     const from=month+'-01',until=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),1)).toISOString().slice(0,10);
     const dates=await sql(db,'SELECT date,reason FROM closed_dates WHERE date>=? AND date<? ORDER BY date',from,until).all();
-    const courses=await sql(db,'SELECT id,series,course,variant,capacity,enabled FROM courses ORDER BY series,course,variant').all();
+    const courses=await sql(db,'SELECT id,series,course,variant,price,unit,required_slots,max_slots,contest,capacity,enabled FROM courses ORDER BY series,course,variant').all();
     const slots=await sql(db,`SELECT s.id,s.course_id,c.series,c.course,c.variant,c.enabled,s.date,s.time,s.starts_at,s.capacity,s.booked,s.status,
       CASE WHEN s.status='OPEN' AND c.enabled=1 AND d.date IS NULL AND s.booked<s.capacity AND s.starts_at>=? THEN 1 ELSE 0 END AS bookable
       FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date
@@ -152,6 +178,7 @@ export async function adminAction(db,path,d){
   if(path==='/api/admin/orders'){
     const before=Number.isSafeInteger(d.before)?d.before:now()+1,beforeId=typeof d.beforeId==='string'?d.beforeId:'\uffff';
     const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,quantity,unit_price,booking_unit,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,
+      CASE WHEN ${archiveState}='ARCHIVE_ORDER' THEN 1 ELSE 0 END AS archived,
       (SELECT group_concat(s.date||' '||s.time,' / ') FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=o.id) AS sessions
       FROM orders o WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 200`,before,before,beforeId).all();return {orders:rows.results};
   }
