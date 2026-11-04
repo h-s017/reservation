@@ -156,7 +156,7 @@ export async function adminAction(db,path,d){
       CASE WHEN s.status='OPEN' AND c.enabled=1 AND d.date IS NULL AND s.booked<s.capacity AND s.starts_at>=? THEN 1 ELSE 0 END AS bookable
       FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date
       WHERE s.date>=? AND s.date<? ORDER BY s.date,s.time`,now()+129600,from,until).all();
-    return {dates:dates.results,courses:courses.results,slots:slots.results};
+    return {management_version:1,dates:dates.results,courses:courses.results,slots:slots.results};
   }
   if(path==='/api/admin/create-slot'){
     const date=String(d.date||''),time=String(d.time||''),courseId=String(d.courseId||''),capacity=d.capacity;
