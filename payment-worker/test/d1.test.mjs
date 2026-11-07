@@ -3,7 +3,10 @@ const data={slotIds:['s'],name:'測試',phone:'0912345678',email:'test@example.c
 test('D1 catalogue preserves every website price and extra blocked dates',()=>{
   const db=database(true),html=readFileSync(new URL('../../index.html',import.meta.url),'utf8');
   const courses=vm.runInNewContext(html.match(/const C=([\s\S]*?);\s*let S=/)[0].replace(/;\s*let S=$/,'; C.COURSES'));
-  for(const c of courses)assert.equal(db.sqlite.prepare('SELECT price FROM courses WHERE series=? AND course=? AND variant=?').get(c.series,c.course,c.variant||'').price,c.price);
+  for(const [i,c] of courses.entries()){
+    const row=db.sqlite.prepare('SELECT course,price,enabled FROM courses WHERE id=?').get('course-'+String(i+1).padStart(2,'0'));
+    assert.equal(row.course,c.course);assert.equal(row.price,c.price);assert.equal(row.enabled,c.hidden?0:1);
+  }
   assert.ok(db.sqlite.prepare("SELECT date FROM closed_dates WHERE date='2026-11-22'").get());
 });
 test('same token creates one row and server price ignores user amount',async()=>{
