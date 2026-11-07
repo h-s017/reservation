@@ -17,7 +17,7 @@ export const ownedOrder=(db,hash,orderId)=>getOrder(db,'access_hash=? AND (? IS 
 export function publicOrder(o){
   const {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at}=o;
   const a=o.attempt;const transfer=a?.account_no?{bankCode:a.bank_code,account:a.account_no,deadline:a.deadline,expired:a.deadline<=now()}:null;
-  return {id,status,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer,quantity:o.quantity,unit_price:o.unit_price,booking_unit:o.booking_unit,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
+  return {id,status:o.booking_cancelled_at?'CANCELLED':status,payment_status:status,booking_cancelled_at:o.booking_cancelled_at,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer:o.booking_cancelled_at?null:transfer,quantity:o.quantity,unit_price:o.unit_price,booking_unit:o.booking_unit,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
 }
 export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})){
   const rows=await sql(db,`SELECT s.id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
@@ -55,6 +55,7 @@ export async function createOrder(db,hash,d,contest=false,manual=null){
 }
 export async function startCheckout(db,hash,orderId){
   let order=await ownedOrder(db,hash,orderId);
+  if(order.booking_cancelled_at)fail('ORDER_STATE_CONFLICT');
   if(order.status==='PAID'||order.attempt?.status==='PENDING')return order;
   if(order.status==='LINE_CONFIRMATION')fail('BAD_REQUEST');
   try{
@@ -116,6 +117,12 @@ export async function manualOrder(db,d){
 }
 const archiveState=`COALESCE((SELECT a.action FROM admin_audit a WHERE a.target=o.id AND a.action IN ('ARCHIVE_ORDER','RESTORE_ORDER') ORDER BY a.id DESC LIMIT 1),'RESTORE_ORDER')`;
 export async function adminAction(db,path,d){
+  if(path==='/api/admin/cancel-reservation'){
+    if(typeof d.id!=='string'||d.confirmed!==true||typeof d.reason!=='string'||!d.reason.trim()||d.reason.length>500)fail('BAD_REQUEST');
+    const order=await getOrder(db,'id=?',d.id);
+    await sql(db,'UPDATE orders SET booking_cancelled_at=?,booking_cancel_reason=? WHERE id=? AND booking_cancelled_at IS NULL',now(),d.reason.trim(),order.id).run();
+    return {order:publicOrder(await getOrder(db,'id=?',order.id))};
+  }
   if(path==='/api/admin/manual-order')return manualOrder(db,d);
   if(['/api/admin/archive-order','/api/admin/restore-order'].includes(path)){
     if(typeof d.id!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(d.id)||d.confirmed!==true)fail('BAD_REQUEST');
@@ -177,10 +184,10 @@ export async function adminAction(db,path,d){
   }
   if(path==='/api/admin/orders'){
     const before=Number.isSafeInteger(d.before)?d.before:now()+1,beforeId=typeof d.beforeId==='string'?d.beforeId:'\uffff';
-    const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,quantity,unit_price,booking_unit,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,
+    const rows=await sql(db,`SELECT id,course,variant,name,phone,email,line,note,amount,status,trade_no,created_at,paid_at,quantity,unit_price,booking_unit,cancellation_status,cancellation_reason,refund_reference,refund_requested_at,refunded_at,booking_cancelled_at,booking_cancel_reason,
       CASE WHEN ${archiveState}='ARCHIVE_ORDER' THEN 1 ELSE 0 END AS archived,
       (SELECT group_concat(s.date||' '||s.time,' / ') FROM order_slots os JOIN slots s ON s.id=os.slot_id WHERE os.order_id=o.id) AS sessions
-      FROM orders o WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 200`,before,before,beforeId).all();return {orders:rows.results};
+      FROM orders o WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 200`,before,before,beforeId).all();return {orders:rows.results.map(o=>({...o,payment_status:o.status,status:o.booking_cancelled_at?'CANCELLED':o.status}))};
   }
   if(path==='/api/admin/slots')return {slots:await listSlots(db,typeof d.from==='string'?d.from:'0000')};
   if(path==='/api/admin/slot'){

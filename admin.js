@@ -6,8 +6,9 @@ function cell(row,text){const td=document.createElement('td');td.textContent=tex
 function heading(names){el('head').replaceChildren();const r=document.createElement('tr');for(const name of names){const th=document.createElement('th');th.textContent=name;r.appendChild(th);}el('head').appendChild(r);el('rows').replaceChildren();}
 async function orders(before,beforeId){
   const j=await api('orders',before?{before,beforeId}:{});currentOrders=j.orders;heading(['訂單／建立時間','課程／場次','聯絡資料','金額／付款','操作']);
-  for(const o of j.orders){const row=document.createElement('tr');cell(row,o.id+'\n'+new Date(o.created_at*1000).toLocaleString('zh-TW'));cell(row,o.course+'\n'+o.variant+'\n'+(o.quantity||1)+' '+(o.booking_unit||'位')+'\n'+o.sessions);cell(row,[o.name,o.phone,o.email,o.line,o.note].join('\n'));cell(row,'NT$ '+o.amount+'\n'+o.status+'\n'+(o.trade_no||''));const actions=cell(row,'');refundActions(o,actions);
-    if(['PENDING','FAILED'].includes(o.status)){const b=document.createElement('button');b.textContent='取消未付款訂單';b.onclick=()=>run(async()=>{if(!confirm('取消此未付款訂單並釋放名額？未決交易會被拒絕。'))return;await api('cancel',{id:o.id});await orders();});actions.appendChild(b);}el('rows').appendChild(row);}
+  for(const o of j.orders){const row=document.createElement('tr');cell(row,o.id+'\n'+new Date(o.created_at*1000).toLocaleString('zh-TW'));cell(row,o.course+'\n'+o.variant+'\n'+(o.quantity||1)+' '+(o.booking_unit||'位')+'\n'+o.sessions);cell(row,[o.name,o.phone,o.email,o.line,o.note].join('\n'));cell(row,'NT$ '+o.amount+'\n'+(o.booking_cancelled_at?'預約已取消\n付款紀錄：':'')+(o.payment_status||o.status)+'\n'+(o.trade_no||''));const actions=cell(row,'');refundActions(o,actions);
+    if(!o.booking_cancelled_at&&o.status!=='CANCELLED'&&o.cancellation_status!=='REFUNDED'){const b=document.createElement('button');b.textContent='取消預約／釋放名額';b.onclick=()=>run(async()=>{if(!confirm('取消預約並釋放名額？付款與退款紀錄會保留。'))return;await api('cancel-reservation',{id:o.id,confirmed:true,reason:'管理者取消預約'});await orders();});actions.appendChild(b);}
+    if(!o.booking_cancelled_at&&['PENDING','FAILED'].includes(o.status)){const b=document.createElement('button');b.textContent='取消未付款訂單';b.onclick=()=>run(async()=>{if(!confirm('取消此未付款訂單並釋放名額？未決交易會被拒絕。'))return;await api('cancel',{id:o.id});await orders();});actions.appendChild(b);}el('rows').appendChild(row);}
   el('older').hidden=j.orders.length<200;el('older').onclick=()=>run(()=>orders(j.orders[j.orders.length-1].created_at,j.orders[j.orders.length-1].id));
 }
 function renderSlots(){heading(['課程','場次','已保留／容量','狀態／操作']);el('older').hidden=true;
@@ -87,10 +88,10 @@ async function setDateClosed(closed){
 }
 el('dateForm').onsubmit=e=>{e.preventDefault();setDateClosed(true);};
 el('openDate').onclick=()=>setDateClosed(false);
-el('export').onclick=()=>{const keys=['id','course','variant','sessions','name','phone','email','line','note','amount','quantity','unit_price','booking_unit','status','trade_no','created_at','paid_at','cancellation_status','cancellation_reason','refund_reference','refund_requested_at','refunded_at'];const safe=v=>'"'+String(v??'').replace(/^[=+@\-\t\r]/,"'$&").replaceAll('"','""')+'"';const csv='\uFEFF'+[keys,...currentOrders.map(o=>keys.map(k=>o[k]))].map(r=>r.map(safe).join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='course-orders.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+el('export').onclick=()=>{const keys=['id','course','variant','sessions','name','phone','email','line','note','amount','quantity','unit_price','booking_unit','status','payment_status','booking_cancelled_at','trade_no','created_at','paid_at','cancellation_status','cancellation_reason','refund_reference','refund_requested_at','refunded_at'];const safe=v=>'"'+String(v??'').replace(/^[=+@\-\t\r]/,"'$&").replaceAll('"','""')+'"';const csv='\uFEFF'+[keys,...currentOrders.map(o=>keys.map(k=>o[k]))].map(r=>r.map(safe).join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='course-orders.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
 
 function refundActions(o,actions){
-  if(o.status!=='PAID')return;
+  if((o.payment_status||o.status)!=='PAID')return;
   const state=o.cancellation_status||'NONE',label=document.createElement('p');
   label.textContent=state==='REFUNDED'?'已取消／店家已確認全額退款':state==='REFUND_PENDING'?'取消申請／待退款':'已付款';actions.appendChild(label);
   if(state==='REFUNDED')return;
