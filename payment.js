@@ -72,7 +72,7 @@ function renderPaymentResult(order) {
   if(order.booking_cancelled_at){
     $('doneTitle').textContent='預約已取消';$('doneId').textContent=order.id;
     $('paymentCheck').hidden=true;$('paymentCheck').style.display='none';
-    const paymentNote=order.cancellation_status==='REFUNDED'?'店家已確認退款。':order.payment_status==='PAID'?'付款紀錄已保留，退款尚待確認。':'請勿繼續付款。若已付款，請聯繫官方 LINE 核對款項。';
+    const paymentNote=order.cancellation_status==='REFUNDED'?'店家已確認退款。':order.payment_status==='PAID'?(order.cancellation_status==='REFUND_PENDING'?'付款紀錄已保留，退款尚待確認。':'已付款紀錄已保留。'):'請勿繼續付款。若已付款，請聯繫官方 LINE 核對款項。';
     $('doneBody').innerHTML='預約已取消，名額已釋放。<br>'+paymentNote+'<br><br>'+orderDetails(order);
     $('retryPayment').hidden=true;$('checkPayment').hidden=false;$('checkPayment').onclick=refreshPayment;show('Done');return;
   }
