@@ -42,6 +42,7 @@ async function prepareOrder() {
   $('toStep5').disabled=true;
   try {
     const {order}=await paymentAPI('/orders',payload);
+    window.HanaReservationAnalytics?.once('reservation_order_created',order.id);
     $('summary5').innerHTML=orderDetails(order,true);$('editOrder').onclick=editOrder;
     $('paymentMsg').classList.remove('show');show(5);
   } catch(e){showMsg(e.message);} finally{$('toStep5').disabled=false;}
@@ -91,6 +92,7 @@ function renderPaymentResult(order) {
     $('doneBody').innerHTML=(refunded?'店家已確認全額退款，報名已取消。':'已提出取消申請，退款尚待店家確認。')+'<br><br>'+orderDetails(order)+'<br><br>如有問題，請聯繫官方 LINE。';
     $('retryPayment').hidden=true;$('checkPayment').hidden=refunded;
   }
+  if (paid && !order.booking_cancelled_at && !['REFUND_PENDING','REFUNDED'].includes(order.cancellation_status)) window.HanaReservationAnalytics?.once('reservation_paid',order.id);
   show('Done');
 }
 async function refreshPayment() {
