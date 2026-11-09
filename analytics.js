@@ -34,7 +34,7 @@
       keepalive: true,
       headers: {'apikey': key,'Content-Type':'application/json','Prefer':'return=minimal'},
       body: JSON.stringify(payload)
-    }).catch(() => {});
+    }).then(response => { if (!response.ok) console.warn('[HANA analytics] Event not saved:', response.status); }).catch(error => { console.warn('[HANA analytics] Connection failed:', error?.message || 'network error'); });
   }
   const once = (type, id) => {
     if (!id) return;
