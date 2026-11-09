@@ -19,11 +19,26 @@
       return ref.hostname ? 'Other' : 'Direct';
     } catch (_) { return 'Direct'; }
   })();
+  // Ephemeral, random per-tab session ID: counts approximate visits without collecting identity.
+  const visitorSession = (() => {
+    const storageKey = 'hana-reservation-visitor-session-v1';
+    try {
+      let id = sessionStorage.getItem(storageKey);
+      if (!id) {
+        id = crypto.randomUUID();
+        sessionStorage.setItem(storageKey, id);
+      }
+      return id;
+    } catch (_) {
+      return crypto.randomUUID();
+    }
+  })();
   function record(eventType) {
     if (!allowed.has(eventType)) return;
     const payload = {
       page: 'reservation',
       event_type: eventType,
+      session_id: visitorSession,
       source,
       path: 'reservation.hanascent.com/',
       metadata: {}
