@@ -32,7 +32,7 @@
       method: 'POST',
       mode: 'cors',
       keepalive: true,
-      headers: {'apikey': key,'Authorization': 'Bearer ' + key,'Content-Type':'application/json','Prefer':'return=minimal'},
+      headers: {'apikey': key,'Content-Type':'application/json','Prefer':'return=minimal'},
       body: JSON.stringify(payload)
     }).catch(() => {});
   }
