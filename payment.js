@@ -24,8 +24,12 @@ function renderRegistration() {
   $('fQuantity').innerHTML=Array.from({length:max},(_,i)=>'<option value="'+(i+1)+'">'+(i+1)+' '+unit+(unit==='組'?'（'+((i+1)*2)+' 位）':'')+'</option>').join('');
   $('fQuantity').onchange=()=>{$('quantitySummary').textContent='單價 '+money(S.course.price)+'／'+unit+' × '+($('fQuantity').value||0)+' '+unit+'，合計 '+money(S.course.price*Number($('fQuantity').value||0));};
   $('fQuantity').onchange();
-  $('step4Title').textContent='填寫報名資料';$('toStep5').disabled=false;
-  $('toStep5').textContent='確認訂單';$('toStep5').onclick=prepareOrder;
+  const heartVillage=S.course.series==='心村限定｜Helori 香氣探索所';
+  $('registrationSummary').classList.toggle('show',heartVillage);
+  $('registrationSummary').innerHTML=heartVillage?'<b>'+esc(S.course.course)+'</b><br>'+S.slots.map(s=>esc(s.date)+' '+esc(s.time)).join('<br>')+'<br>單價 '+money(S.course.price)+'／人':'';
+  $('heartVillageCheckoutNotice').hidden=!heartVillage;
+  $('step4Title').textContent=heartVillage?'選擇報名人數並結帳':'填寫報名資料';$('toStep5').disabled=false;
+  $('toStep5').textContent=heartVillage?'前往結帳':'確認訂單';$('toStep5').onclick=prepareOrder;
 }
 function orderDetails(order,contacts=false) {
   return '課程：'+esc(order.course)+(order.variant?'<br>方案：'+esc(order.variant):'')+
@@ -45,6 +49,7 @@ async function prepareOrder() {
     window.HanaReservationAnalytics?.once('reservation_order_created',order.id);
     $('summary5').innerHTML=orderDetails(order,true);$('editOrder').onclick=editOrder;
     $('paymentMsg').classList.remove('show');show(5);
+    if(S.course.series==='心村限定｜Helori 香氣探索所')await submitPayment();
   } catch(e){showMsg(e.message);} finally{$('toStep5').disabled=false;}
 }
 async function editOrder() {
