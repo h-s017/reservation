@@ -1,3 +1,4 @@
+import {effectiveHeartVillageCourse} from './heart-village-catalogue.mjs';
 const now=()=>Math.floor(Date.now()/1000);
 export function atmDeadline(timestamp,startsAt){
   const end=(Math.floor((timestamp+28800)/86400)+1)*86400-28800-1;
@@ -20,10 +21,15 @@ export function publicOrder(o){
   return {id,status:o.booking_cancelled_at?'CANCELLED':status,payment_status:status,booking_cancelled_at:o.booking_cancelled_at,course,variant,slots,amount,name,phone,email,line,created_at,paid_at,transfer:o.booking_cancelled_at?null:transfer,quantity:o.quantity,unit_price:o.unit_price,booking_unit:o.booking_unit,cancellation_status:o.cancellation_status,refunded_at:o.refunded_at};
 }
 export async function listSlots(db,from=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'})){
-  const rows=await sql(db,`SELECT s.id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
+  const rows=await sql(db,`SELECT s.id,s.course_id,c.series,c.course,c.variant,s.date,s.time,c.price,s.capacity,s.booked,c.unit,
     CASE WHEN s.status='CLOSED' OR c.enabled=0 OR d.date IS NOT NULL THEN '關閉' ELSE '開放' END AS status
     FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date WHERE s.date>=? ORDER BY s.date,s.time`,from).all();
-  return rows.results;
+  return rows.results.flatMap(row=>{
+    const effective=effectiveHeartVillageCourse(row);
+    if(!effective)return [];
+    const {course_id,...slot}=effective;
+    return [slot];
+  });
 }
 export async function createOrder(db,hash,d,contest=false,manual=null){
   try{return await ownedOrder(db,hash);}catch(e){if(e.message!=='NOT_FOUND')throw e;}
@@ -35,9 +41,12 @@ export async function createOrder(db,hash,d,contest=false,manual=null){
   if(!Array.isArray(d.slotIds)||!d.slotIds.length||d.slotIds.length>12||new Set(d.slotIds).size!==d.slotIds.length||d.slotIds.some(s=>typeof s!=='string'||s.length>140))fail('BAD_REQUEST');
   const rows=await sql(db,`SELECT s.*,c.course,c.variant,c.price,c.unit,c.contest,c.required_slots,c.max_slots,c.enabled
     FROM slots s JOIN courses c ON c.id=s.course_id WHERE s.id IN (${d.slotIds.map(()=>'?').join(',')})`,...d.slotIds).all();
-  const s=rows.results[0];
-  if(!s||rows.results.length!==d.slotIds.length||rows.results.some(x=>x.course_id!==s.course_id)||s.required_slots!==d.slotIds.length||d.slotIds.length>s.max_slots)fail('BAD_REQUEST');
-  if(Boolean(s.contest)!==contest||!s.enabled||(!contest&&s.price<=0))fail('COURSE_UNAVAILABLE');
+  const raw=rows.results[0];
+  if(!raw||rows.results.length!==d.slotIds.length||rows.results.some(x=>x.course_id!==raw.course_id)||raw.required_slots!==d.slotIds.length||d.slotIds.length>raw.max_slots)fail('BAD_REQUEST');
+  // Keep legacy slot IDs and historic order snapshots, but never trust stale D1
+  // Heart Village labels/prices or permit retired single/double 10mL options.
+  const s=effectiveHeartVillageCourse(raw);
+  if(!s||Boolean(s.contest)!==contest||!s.enabled||(!contest&&s.price<=0))fail('COURSE_UNAVAILABLE');
   const orderId=id('HF'),timestamp=now();
   try{
     await db.batch([
@@ -163,7 +172,9 @@ export async function adminAction(db,path,d){
       CASE WHEN s.status='OPEN' AND c.enabled=1 AND d.date IS NULL AND s.booked<s.capacity AND s.starts_at>=? THEN 1 ELSE 0 END AS bookable
       FROM slots s JOIN courses c ON c.id=s.course_id LEFT JOIN closed_dates d ON d.date=s.date
       WHERE s.date>=? AND s.date<? ORDER BY s.date,s.time`,now()+129600,from,until).all();
-    return {management_version:1,dates:dates.results,courses:courses.results,slots:slots.results};
+    return {management_version:1,dates:dates.results,
+      courses:courses.results.map(row=>effectiveHeartVillageCourse(row)||{...row,enabled:0}),
+      slots:slots.results.map(row=>effectiveHeartVillageCourse(row)||{...row,enabled:0,bookable:0,status:'CLOSED'})};
   }
   if(path==='/api/admin/create-slot'){
     const date=String(d.date||''),time=String(d.time||''),courseId=String(d.courseId||''),capacity=d.capacity;
@@ -173,7 +184,7 @@ export async function adminAction(db,path,d){
     const startsAt=Math.floor(Date.parse(date+'T'+time+':00+08:00')/1000);
     if(startsAt<now()+129600||startsAt>now()+86400*550)fail('BAD_REQUEST');
     const course=await sql(db,'SELECT id FROM courses WHERE id=? AND enabled=1',courseId).first();
-    if(!course)fail('COURSE_UNAVAILABLE');
+    if(!course||!effectiveHeartVillageCourse(course))fail('COURSE_UNAVAILABLE');
     const existing=await sql(db,'SELECT id FROM slots WHERE course_id=? AND date=? AND time=?',courseId,date,time).first();
     if(existing)fail('CAPACITY_CONFLICT');
     const slotId='admin-'+crypto.randomUUID();
