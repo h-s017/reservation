@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>活動管理｜HANA Reservation</title><link rel="stylesheet" href="/admin.css"><script type="module" src="/event-admin.js"></script></head>
+<body><main>
+<h1>活動管理</h1><p><a href="/admin.html">返回 HANA Reservation 後台</a></p>
+<form id="auth"><label>Reservation 管理密鑰 <input id="token" type="password" required autocomplete="off"></label> <button>登入</button></form>
+<p id="notice" role="status"></p>
+<div id="dashboard" hidden>
+<button id="logout">登出</button>
+<form id="info"><h2>活動資訊</h2><label>中文名稱 <input name="title" required maxlength="100"></label> <label>英文名稱 <input name="englishTitle" required maxlength="120"></label> <label>海報圖片網址 <input name="posterUrl" maxlength="600"></label> <label><input name="published" type="checkbox">發布到測試活動 API</label> <button>儲存</button></form>
+<form id="partners"><h2>合作團隊</h2><label>團隊 <select id="partner" name="code"></select></label> <label>名稱 <input name="name" required maxlength="100"></label> <label>分工 <input name="description" maxlength="300"></label> <label>Logo 圖片網址 <input name="logoUrl" maxlength="600"></label> <button>儲存</button></form>
+<form id="prices"><h2>票價</h2><label>票種 <select id="ticket" name="id"></select></label> <label>新臺幣 <input type="number" min="1" max="1000000" name="price" required></label> <button>儲存</button></form>
+<form id="slots"><h2>梯次與團隊出席</h2><label>現有梯次 <select id="slot"></select></label> <label>日期 <input name="date" type="date" required></label> <label>時間 <select name="time"><option>10:00</option><option>13:00</option><option>14:00</option><option>16:00</option></select></label>
+<fieldset><legend>合作團隊可出席</legend><label><input name="team" type="checkbox" value="1">鍾兒旗袍</label> <label><input name="team" type="checkbox" value="2">此域調香</label> <label><input name="team" type="checkbox" value="4">羊駝攝影</label></fieldset>
+<label>允許的方案組合 <input name="mixes" placeholder="例如 A,C,AC"></label> <label>總接待量 <input name="capacity" type="number" min="0" max="100" required></label>
+<label>狀態 <select name="status"><option value="interest">預約意向</option><option value="open">可付款</option><option value="closed">關閉</option></select></label> <button>儲存</button></form>
+<h2>預約與付款紀錄</h2><p>進行中的付款與退款須以 Portaly 紀錄核對。退款處理狀態只記錄營運作業。</p><button id="refresh">重新載入</button><div id="orders"></div><button id="next" hidden>下一頁</button>
+</div></main></body></html>

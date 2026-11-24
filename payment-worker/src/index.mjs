@@ -1,12 +1,14 @@
 import {saveAccount,reconcileExpired} from './atm.mjs';
 import {focusSyncAction} from './focus-sync.mjs';
+import {eventFocusSnapshot,eventRequest,reconcileEventOrders} from './event-orders.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 export default {
-  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env)]));},
+  async scheduled(event,env,ctx){ctx.waitUntil(Promise.all([expireDrafts(env.DB),reconcileExpired(env),reconcileEventOrders(env)]));},
   async fetch(request,env){
     const url=new URL(request.url),headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
     const reply=(data,status=200)=>Response.json(data,{status,headers});
+    if(url.pathname.startsWith('/api/event/'))return eventRequest(request,env);
     if(url.pathname==='/payment/return'&&['GET','POST'].includes(request.method)){
       // Diagnostic only: ReturnURL never changes payment state or authorizes a booking.
       if(request.method==='POST')try{const form=await request.formData();const code=String(form.get('Status')||'UNKNOWN');if(/^[A-Z0-9_]{1,40}$/.test(code))await env.DB.prepare('INSERT INTO admin_audit(action,target,created_at) VALUES(?,?,?)').bind('UNVERIFIED_RETURN_CODE',code,Math.floor(Date.now()/1000)).run();}catch(_){}
@@ -21,11 +23,19 @@ export default {
       if(request.headers.get('Origin')===env.SITE_ORIGIN)headers['Access-Control-Allow-Origin']=env.SITE_ORIGIN;
       try{return reply({ok:true,slots:await listSlots(env.DB)});}catch(_){return reply({ok:false,error:'SERVICE_UNAVAILABLE'},503);}
     }
-    if(url.pathname==='/api/focus/calendar-sync'){
+    if(['/api/focus/calendar-sync','/api/focus/event-snapshot'].includes(url.pathname)){
       if(request.method!=='POST')return reply({ok:false},405);
       const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
       if(!env.FOCUS_SYNC_TOKEN||env.FOCUS_SYNC_TOKEN.length<32||!equal(token,env.FOCUS_SYNC_TOKEN))return reply({ok:false,error:'UNAUTHORIZED'},401);
-      try{const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);return reply({ok:true,...await focusSyncAction(env.DB,JSON.parse(raw))});}
+      try{
+        const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
+        const payload=JSON.parse(raw);
+        if(url.pathname==='/api/focus/event-snapshot'){
+          if(!['mock','test'].includes(env.EVENT_MODE))return reply({ok:false,error:'UNCONFIGURED'},503);
+          return reply({ok:true,...await eventFocusSnapshot(env.DB,payload.event)});
+        }
+        return reply({ok:true,...await focusSyncAction(env.DB,payload)});
+      }
       catch(e){return reply({ok:false,error:['BAD_REQUEST','SYNC_SOURCE_CHANGED','ENROLLED_REVIEW_REQUIRED','SYNC_TOO_SOON','SYNC_DATE_BLOCKED','SYNC_INCOMPLETE'].includes(e.message)?e.message:'SYNC_UNAVAILABLE'},409);}
     }
     const api=url.pathname.startsWith('/api/')||url.pathname.startsWith('/orders')||url.pathname==='/contest';
@@ -34,7 +44,7 @@ export default {
       if(!env.ASSETS)return reply({ok:false},404);
       const asset=await env.ASSETS.fetch(request),h=new Headers(asset.headers);
       for(const [k,v] of Object.entries(headers))h.set(k,v);h.set('X-Frame-Options','DENY');
-      if(url.pathname.startsWith('/admin'))h.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+      if(url.pathname.startsWith('/admin')||url.pathname.startsWith('/event-admin'))h.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
       return new Response(asset.body,{status:asset.status,headers:h});
     }
     const admin=url.pathname.startsWith('/api/admin/'),allowedOrigin=admin?url.origin:env.SITE_ORIGIN;
