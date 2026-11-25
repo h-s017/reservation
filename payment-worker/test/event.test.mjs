@@ -16,9 +16,10 @@ const eventTime = '2099-12-06', slot = eventTime+'-10:00';
 const adminToken = 'x'.repeat(48), fakeSecret = 'test secret, never installed';
 const cart = [{id:'A1',quantity:1},{id:'A2',quantity:1},{id:'C3',quantity:1}];
 const booking = (options={}) => ({slot,name:'測試參與者',email:'qa@example.test',lines:cart,...options});
-function setup() {
+function setup(migrate=true) {
   const DB = database();
   DB.sqlite.exec(readFileSync(new URL('../migrations/0013_hana_event.sql',import.meta.url),'utf8'));
+  if (migrate) addLiveMode(DB);
   DB.sqlite.exec(execFileSync(process.execPath,[fileURLToPath(new URL('../../scripts/build-event-seed.mjs',import.meta.url))],{encoding:'utf8'}));
   DB.sqlite.exec("UPDATE event_catalogue SET starts_on='2099-12-01',ends_on='2099-12-31',published=1");
   const env = {DB,EVENT_MODE:'mock',EVENT_SITE_ORIGIN:site,ADMIN_TOKEN:adminToken,PORTALY_CALLBACK_SECRET:fakeSecret};
@@ -39,6 +40,9 @@ function setup() {
       'x-portaly-signature':signPortalyCallback({secret:signedWith,timestamp,payload:body})},body:JSON.stringify(body)}),env);
   }
   return {env,DB,request,admin,manageSlot,webhook};
+}
+function addLiveMode(DB) {
+  DB.sqlite.exec(readFileSync(new URL('../migrations/0014_event_live_payment.sql',import.meta.url),'utf8'));
 }
 const token = char => char.repeat(64);
 const parse = async r=>[r.status,await r.json()];
@@ -156,4 +160,29 @@ test('Portaly adapter sends only server-recalculated one-time or product bundle 
   await gateway.createProductSession(['prod-1','prod-1','prod-2'],{totalAmount:1});
   assert.deepEqual(calls.at(-1).body,{totalAmount:1650,currency:'TWD',items:[{productId:'prod-1'},{productId:'prod-1'},{productId:'prod-2'}]});
   assert.throws(()=>portaly({PORTALY_API_KEY:'pcs_live_fixture'}),/UNCONFIGURED/);
+});
+
+test('live payments require production configuration and reject test callbacks and legacy checkout URLs',async()=>{
+  const {env,DB,request,manageSlot,webhook} = setup(false);
+  await manageSlot();
+  const access = token('a');
+  const {order} = await (await request('orders',booking(),access)).json();
+  assert.equal((await request('checkout',{id:order.id},access)).status,200);
+  const readAttempt = () => DB.sqlite.prepare('SELECT * FROM event_payment_attempts WHERE order_id=?').get(order.id);
+  const old = readAttempt();
+  addLiveMode(DB);
+  assert.deepEqual(readAttempt(),old);
+  Object.assign(env,{EVENT_MODE:'live',EVENT_PUBLIC_ORIGIN:api,PORTALY_API_KEY:'pcs_live_fixture',
+    PORTALY_PHYSICAL_EVENT_APPROVED:'true',PORTALY_EVENT_PLAN_ID:'live-plan'});
+  assert.equal((await request('catalogue',{},access)).status,503);
+  env.PORTALY_LIVE_ENABLED='true';
+  env.PORTALY_API_KEY='pcs_test_fixture';
+  assert.equal((await request('catalogue',{},access)).status,503);
+  env.PORTALY_API_KEY='pcs_live_fixture';
+  assert.equal((await (await request('catalogue',{},access)).json()).mode,'live');
+  assert.equal((await request('checkout',{id:order.id},access)).status,409);
+  DB.sqlite.prepare("UPDATE event_payment_attempts SET mode='live',plan_id='live-plan' WHERE order_id=?").run(order.id);
+  assert.equal((await webhook(order,'completed',{mode:'test'})).status,409);
+  assert.equal((await webhook(order,'completed',{mode:undefined})).status,200);
+  assert.equal((await (await request('status',{id:order.id},access)).json()).order.status,'PAID');
 });

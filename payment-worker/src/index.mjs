@@ -1,6 +1,6 @@
 import {saveAccount,reconcileExpired} from './atm.mjs';
 import {focusSyncAction} from './focus-sync.mjs';
-import {eventFocusSnapshot,eventRequest,reconcileEventOrders} from './event-orders.mjs';
+import {eventEnabled,eventFocusSnapshot,eventRequest,reconcileEventOrders} from './event-orders.mjs';
 import {checkout,sha256,verifyNotification,verifyAccount,equal} from './newebpay.mjs';
 import {createOrder,ownedOrder,startCheckout,cancelOrder,notifyOrder,listSlots,expireDrafts,adminAction,publicOrder} from './orders.mjs';
 export default {
@@ -31,7 +31,7 @@ export default {
         const raw=await request.text();if(raw.length>10000)return reply({ok:false},413);
         const payload=JSON.parse(raw);
         if(url.pathname==='/api/focus/event-snapshot'){
-          if(!['mock','test'].includes(env.EVENT_MODE))return reply({ok:false,error:'UNCONFIGURED'},503);
+          if(!eventEnabled(env))return reply({ok:false,error:'UNCONFIGURED'},503);
           return reply({ok:true,...await eventFocusSnapshot(env.DB,payload.event)});
         }
         return reply({ok:true,...await focusSyncAction(env.DB,payload)});

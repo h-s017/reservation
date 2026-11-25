@@ -2,10 +2,15 @@ import {verifyPortalyCallback} from './vendor/portaly-signature.mjs';
 
 const paths = {payment:'/api/creator-subscription',product:'/api/digital-products'};
 const fail = code => { throw new Error(code); };
+export function livePortalyConfigured(env) {
+  return env.EVENT_MODE==='live' && env.PORTALY_LIVE_ENABLED==='true' &&
+    /^pcs_live_/.test(env.PORTALY_API_KEY||'') && !!env.PORTALY_CALLBACK_SECRET &&
+    env.PORTALY_PHYSICAL_EVENT_APPROVED==='true' && !!env.PORTALY_EVENT_PLAN_ID;
+}
 export function portaly(env, fetcher=fetch) {
   const host = new URL(env.PORTALY_API_HOST || 'https://portaly.ai');
   if (host.origin!=='https://portaly.ai' || host.username || host.password || host.pathname!=='/') fail('UNCONFIGURED');
-  if (!/^pcs_test_/.test(env.PORTALY_API_KEY||'')) fail('UNCONFIGURED');
+  if (env.EVENT_MODE==='live' ? !livePortalyConfigured(env) : !/^pcs_test_/.test(env.PORTALY_API_KEY||'')) fail('UNCONFIGURED');
   async function api(path, body) {
     const response = await fetcher(host.origin+path,{
       method:body?'POST':'GET',redirect:'manual',

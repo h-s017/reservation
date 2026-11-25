@@ -1,13 +1,15 @@
 import {equal,sha256} from './newebpay.mjs';
 import {sql} from './orders.mjs';
 import {eventSlug,plans,eligible} from '../../hana-event/catalogue.mjs';
-import {portaly,signedPortalyEvent} from './portaly.mjs';
+import {livePortalyConfigured,portaly,signedPortalyEvent} from './portaly.mjs';
 
 const fail = code => { throw new Error(code); };
 const now = () => Math.floor(Date.now()/1000);
 const validSlug = s => typeof s==='string' && /^[a-z0-9-]{1,50}$/.test(s);
 const resStatuses = "('PROCESSING','PAID','CONFIRMED','REFUND_PENDING')";
 const liveHold = "(o.status IN "+resStatuses+" OR (o.status='WAITING_PAYMENT' AND o.hold_until>unixepoch()))";
+export const eventEnabled = env => ['mock','test'].includes(env.EVENT_MODE) ||
+  (livePortalyConfigured(env) && httpsOrigin(env.EVENT_SITE_ORIGIN) && httpsOrigin(env.EVENT_PUBLIC_ORIGIN));
 const events = {
   'creator_subscription.checkout.completed':'PAID',
   'creator_subscription.checkout.failed':'FAILED',
@@ -115,13 +117,16 @@ async function startEventCheckout(env,order) {
   const db = env.DB;
   if (!['WAITING_PAYMENT','PROCESSING'].includes(order.status)) fail('ORDER_CONFLICT');
   const attempt = () => sql(db,'SELECT * FROM event_payment_attempts WHERE order_id=?',order.id).first();
-  const redirect = a => a?.status==='READY'&&a.expires_at>now()?{checkoutUrl:a.checkout_url}:{};
+  const mode = env.EVENT_MODE;
+  const redirect = a => {
+    if (a && a.mode!==mode) fail('PAYMENT_MISMATCH');
+    return a?.status==='READY'&&a.expires_at>now()?{checkoutUrl:a.checkout_url}:{};
+  };
   const existing = await attempt();
   if (existing) return redirect(existing);
   if (order.hold_until<=now()) fail('ORDER_CONFLICT');
 
-  const mock = env.EVENT_MODE==='mock';
-  const mode = mock?'mock':'test';
+  const mock = mode==='mock';
   const gateway = mock?null:portaly(env);
   if (!env.PORTALY_CALLBACK_SECRET || (!mock&&(!httpsOrigin(env.EVENT_PUBLIC_ORIGIN)||!httpsOrigin(env.EVENT_SITE_ORIGIN)))) fail('UNCONFIGURED');
   const plan = mock?{id:'mock-event-plan'}:await gateway.eventPlan();
@@ -191,19 +196,19 @@ async function applyEvent(db,attempt,payload) {
 async function handleWebhook(env,request,d) {
   const payload = signedPortalyEvent(request.headers,d,env.PORTALY_CALLBACK_SECRET);
   if (!Object.hasOwn(events,payload.event)) return {};
-  const expected = env.EVENT_MODE==='mock'?'mock':'test';
-  if (payload.mode!==expected) fail('PAYMENT_MISMATCH');
+  const mode = payload.mode ?? 'live';
+  if (mode!==env.EVENT_MODE) fail('PAYMENT_MISMATCH');
   const session = payload.sessionId||payload.subscriptionId;
   if (!session||typeof session!=='string') fail('PAYMENT_MISMATCH');
   const attempt = await sql(env.DB,`SELECT a.*,o.amount FROM event_payment_attempts a
     JOIN event_orders o ON o.id=a.order_id WHERE a.session_id=?`,session).first();
   if (!attempt) fail('PAYMENT_PENDING');
-  await applyEvent(env.DB,attempt,payload);
+  await applyEvent(env.DB,attempt,{...payload,mode});
   return {};
 }
 
 export async function reconcileEventOrders(env) {
-  if (!['mock','test'].includes(env.EVENT_MODE)) return;
+  if (!eventEnabled(env)) return;
   const db = env.DB;
   await sql(db,`UPDATE event_orders SET status='CANCELLED' WHERE status='WAITING_PAYMENT' AND hold_until<=unixepoch()`).run();
   const rows = (await sql(db,`SELECT a.*,o.amount FROM event_payment_attempts a JOIN event_orders o ON o.id=a.order_id
@@ -324,7 +329,7 @@ export async function eventRequest(request,env) {
   const admin = operation==='admin', webhook = operation==='webhook';
   const headers = {'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
   const reply = (data,status=200) => Response.json(data,{status,headers});
-  if (!['mock','test'].includes(env.EVENT_MODE)) return reply({error:'UNCONFIGURED'},503);
+  if (!eventEnabled(env)) return reply({error:'UNCONFIGURED'},503);
   if (!webhook) {
     const origin = admin?url.origin:env.EVENT_SITE_ORIGIN;
     if (!origin||request.headers.get('Origin')!==origin) return reply({error:'UNAUTHORIZED'},403);

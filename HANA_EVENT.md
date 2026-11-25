@@ -12,11 +12,11 @@
 
 ## 測試環境
 
-1. 在 Reservation **既有測試 D1** 套用 `payment-worker/migrations/0013_hana_event.sql`。由 `node scripts/build-event-seed.mjs` 產生 seed SQL，匯入同一測試 D1。設定是新增活動資料，seed 可重跑且不覆蓋後台調整。
+1. 在 Reservation **既有測試 D1** 套用活動遷移 0013、0014。由 `node scripts/build-event-seed.mjs` 產生 seed SQL，匯入同一測試 D1。seed 可重跑且不覆蓋後台調整。
 2. 發布測試 Worker，為 `EVENT_SITE_ORIGIN` 與 `EVENT_PUBLIC_ORIGIN` 分別設定精確的 HTTPS 站點及 Worker origin，前端 `config.mjs` 則填入同一測試 Worker origin。未連接時前端可看預覽。
 3. 測試金流模式用 `EVENT_MODE=test`。由符合資格的帳號持有人確認 Portaly 涵蓋活動收款，指定一次性、動態價、啟用的 TWD Plan，設定 `PORTALY_EVENT_PLAN_ID`、`PORTALY_PHYSICAL_EVENT_APPROVED`、`PORTALY_API_KEY`、`PORTALY_CALLBACK_SECRET`。僅接受 Test Key。Worker 對真實 Session、Webhook 和查詢只使用 Portaly 官方 HTTPS 來源。
 4. 以測試管理員將活動設為已發布。出席表匯入的 40 梯次均為預約意向、可售名額為零。另行安排一個測試梯次的可支付組合與名額後，使用測試資料和付款頁顯示的測試卡驗收。測試完成再依實際安排設定營運資料。
-5. 真正付款前須完成商家與金流審核、結帳條款、正式付款邏輯及操作驗收。本版本只有 Test Key 入口。
+5. 保留測試 Worker 的 Test 設定，以區隔測試交易及其 webhook。正式環境使用各自的資料庫及 Portaly 憑證。
 
 測試命令
 
@@ -27,6 +27,13 @@ node scripts/build-worker-assets.mjs
 ```
 
 瀏覽器測試用 Node SQLite、Reservation Worker 的相同請求入口與合成簽章。可透過 `EVENT_PLAYWRIGHT`、`EVENT_CHROMIUM` 及 `EVENT_EVIDENCE` 指定本機瀏覽器與證據位置。實測 Portaly Test 仍需有效的活動 Plan 與測試 Worker。
+
+## 正式收款開關
+
+1. 由帳號持有人完成 Portaly 審核，確認以此活動方案收取實體活動費用，並在正式 Worker 的 Secrets 內配置 Live Key 和該 Key 對應的 Callback Secret。
+2. 在正式 Reservation Worker 的 D1 套用 0013、0014 與活動 seed。0014 保留既有付款嘗試資料與唯一交易參照，並允許記錄 `live` 模式。先以測試環境驗證。
+3. 設定 `EVENT_MODE=live`、`PORTALY_LIVE_ENABLED=true`、`PORTALY_PHYSICAL_EVENT_APPROVED=true`、`PORTALY_EVENT_PLAN_ID`、`EVENT_SITE_ORIGIN=https://event.hanascent.com` 與正式 Worker 的 `EVENT_PUBLIC_ORIGIN`。同一環境拒絕 Test Key。
+4. HTTPS、正式結帳條款與可售場次確認後，由管理員開放確認過的日期、方案與名額。再將 GitHub Pages 的活動前端指向該正式 Worker。
 
 ## 金流狀態
 
@@ -52,4 +59,4 @@ node scripts/build-worker-assets.mjs
 
 ## 待營運確認
 
-可付款日期與團隊時段、每梯接待量與可混搭組合、取消／改期／退款規則、兒童票年齡、照片交付時間、首次開放精修加購與否，以及三方金流費用分攤。正式域名核定後還需核對 Vercel Project、現有 DNS 管理權、憑證、預約 Worker 的跨站設定與正式金流。
+可付款日期與團隊時段、每梯接待量與可混搭組合、取消／改期／退款規則、兒童票年齡、照片交付時間、首次開放精修加購與否，以及三方金流費用分攤。正式網站使用 GitHub Pages，並須驗證 HTTPS、預約 Worker 的跨站設定與正式金流。

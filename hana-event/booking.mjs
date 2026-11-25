@@ -89,7 +89,8 @@ function update() {
   id('slot-note').textContent = count>20?'每筆訂單最多 20 位。':count&&!slots.length?'目前沒有相容梯次，請調整方案或人數。':
     slot?.status==='interest'?(hasTeam?'團隊與現場接待量仍待確認。此梯次僅接受預約意向。':'所選方案涉及的合作團隊仍待確認。此梯次僅接受預約意向。'):'';
   submit.disabled = !slot||!connected||pending;
-  submit.textContent = !connected?'預覽不開放送出':slot?.status==='open'?'確認訂單並前往測試結帳':'送出預約意向';
+  submit.textContent = !connected?'預覽不開放送出':slot?.status==='open'?
+    (catalogue.mode==='live'?'確認訂單並前往付款':'確認訂單並前往測試結帳'):'送出預約意向';
 }
 function message(str) {
   result.textContent = str;
@@ -160,7 +161,10 @@ async function load() {
   if (apiOrigin) {
     try {
       catalogue = await api('catalogue',{});
-      id('booking-note').textContent = '此為測試站，請使用測試資料。待團隊確認的梯次只收預約意向，測試結帳不會扣款。';
+      id('booking-note').textContent = catalogue.mode==='live'?
+        '可付款梯次會在時段選單標示。其餘候選梯次僅接受預約意向。':
+        '此為測試站，請使用測試資料。待團隊確認的梯次只收預約意向，測試結帳不會扣款。';
+      id('pay-order').textContent = catalogue.mode==='live'?'繼續付款':'繼續測試結帳';
       lastOrder = JSON.parse(sessionStorage.getItem(key)||'null');
       const poster = document.querySelector('.hero img');
       if (catalogue.event.poster_url) poster.src = catalogue.event.poster_url;
